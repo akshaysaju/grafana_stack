@@ -9,7 +9,24 @@ from prometheus_client import (
 from fastapi.responses import Response
 import time
 import logging
+import os
 from weather_predictor import WeatherPredictor
+from opentelemetry import trace
+from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import BatchSpanProcessor
+from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+from opentelemetry.sdk.resources import Resource
+
+# Configure OpenTelemetry with endpoint from environment variable
+# Services don't need to know about infrastructure details
+otlp_endpoint = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4317")
+otlp_exporter = OTLPSpanExporter(endpoint=otlp_endpoint)
+
+# Create a resource with service name
+resource = Resource.create({"service.name": "weather-service"})
+trace.set_tracer_provider(TracerProvider(resource=resource))
+trace.get_tracer_provider().add_span_processor(BatchSpanProcessor(otlp_exporter))
 
 # Configure logging to both stdout and file
 logging.basicConfig(
@@ -24,6 +41,10 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Weather Prediction Service", version="1.0.0")
 weather_predictor = WeatherPredictor()
+
+# Instrument FastAPI
+FastAPIInstrumentor.instrument_app(app)
+tracer = trace.get_tracer(__name__)
 
 # Prometheus metrics
 prediction_counter = Counter(

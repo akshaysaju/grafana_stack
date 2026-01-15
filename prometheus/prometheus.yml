@@ -7,3 +7,7 @@ scrape_configs:
     static_configs:
       - targets: ["weather-service:8000"]
     metrics_path: "/metrics"
+  - job_name: "recommendations-service"
+    static_configs:
+      - targets: ["recommendations-service:8001"]
+    metrics_path: "/metrics"

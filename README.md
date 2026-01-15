@@ -1,197 +1,227 @@
-# Grafana Stack POC - Complete Documentation
+# Grafana Observability Stack - Complete Documentation
 
-A production-ready proof-of-concept demonstrating the **Grafana monitoring stack** with a FastAPI weather microservice, Prometheus time-series database, and Grafana visualization platform. All services are automatically provisioned without manual UI setup.
+A production-ready proof-of-concept demonstrating **distributed observability** with metrics, logs, and traces collected from microservices using FastAPI, Prometheus, Loki, Tempo, and Grafana. All services are fully integrated and automatically provisioned.
 
-**Status**: ✅ **READY TO USE** - All services running, dashboard active, metrics being collected.
+**Status**: ✅ **READY TO USE** - All 7 services running, complete data flow verified, dashboard active with metrics, logs, and traces.
 
 ---
 
-## Table of Contents
+## 📋 Table of Contents
 
 1. [Quick Start](#quick-start)
-2. [Architecture](#architecture)
+2. [System Architecture](#system-architecture)
 3. [Project Structure](#project-structure)
 4. [Services & Endpoints](#services--endpoints)
-5. [Dashboard Provisioning Methods](#dashboard-provisioning-methods)
-6. [Using Grafana API with Python](#using-grafana-api-with-python)
-7. [PromQL Queries & Examples](#promql-queries--examples)
-8. [Customization Guide](#customization-guide)
+5. [Data Pipelines](#data-pipelines)
+6. [Dashboard & Visualization](#dashboard--visualization)
+7. [Grafana API & Programmatic Access](#grafana-api--programmatic-access)
+8. [Common Operations](#common-operations)
 9. [Troubleshooting](#troubleshooting)
+10. [Advanced Customization](#advanced-customization)
 
 ---
 
-## Quick Start
+## 🚀 Quick Start
 
 ### Prerequisites
 
 - Docker and Docker Compose installed
-- Podman daemon running (or Docker daemon)
+- ~2 GB free disk space
+- Ports available: 3000, 3100, 3200, 4317, 8000, 8001, 9090, 12345
 
 ### Start the Stack
 
 ```bash
 cd ~/sandbox/grafana_stack
-DOCKER_BUILDKIT=0 docker-compose up -d
+docker-compose up -d
 ```
 
-### Verify Services
+### Verify All Services
 
 ```bash
 docker-compose ps
 ```
 
-All three services should show "Up" status:
+All 7 services should show "Up" status:
 
-- weather-service (FastAPI)
-- prometheus
-- grafana
+- weather-service (8000)
+- recommendations-service (8001)
+- prometheus (9090)
+- grafana (3000)
+- loki (3100)
+- tempo (3200 HTTP, 4317 gRPC)
+- alloy (12345)
 
-### Access the Stack
+### Access Services
 
-| Service               | URL                                         | Credentials   |
-| --------------------- | ------------------------------------------- | ------------- |
-| **Grafana Dashboard** | http://localhost:3000/d/weather-service-poc | admin / admin |
-| **Prometheus UI**     | http://localhost:9090                       | None          |
-| **Weather API**       | http://localhost:8000                       | None          |
+| Service                 | URL                                    | Credentials   |
+| ----------------------- | -------------------------------------- | ------------- |
+| **Grafana Dashboard**   | http://localhost:3000/d/cfa87vmjw1ou8c | admin / admin |
+| **Prometheus UI**       | http://localhost:9090                  | None          |
+| **Loki Logs**           | http://localhost:3100                  | None          |
+| **Tempo Traces**        | http://localhost:3200                  | None          |
+| **Weather API**         | http://localhost:8000                  | None          |
+| **Recommendations API** | http://localhost:8001                  | None          |
 
 ### Generate Test Data
 
 ```bash
-# Generate 20 predictions across locations
-for location in "New York" "London" "Tokyo" "Sydney" "Los Angeles"; do
-  for i in {1..4}; do
-    curl -s "http://localhost:8000/prediction?location=$location" > /dev/null
-    sleep 0.5
-  done
+# Generate 10 test requests
+for i in {1..10}; do
+  curl "http://localhost:8001/recommendations?location=City_$i"
+  sleep 0.3
 done
+```
 
-echo "✅ Generated 20 predictions"
+This creates metrics, logs, and traces visible in Grafana within seconds.
+
+---
+
+## 🏗️ System Architecture
+
+### Complete Data Flow Diagram
+
+```
+┌────────────────────────────────────────────────────────────────┐
+│                     GRAFANA (3000)                             │
+│  ┌──────────────────────────────────────────────────────────┐  │
+│  │ Unified Dashboard with Metrics, Logs, and Traces       │  │
+│  │ • 6 panels showing all observability signals           │  │
+│  └──────────────────────────────────────────────────────────┘  │
+└────────┬──────────────────┬────────────────────┬────────────────┘
+         │                  │                    │
+    ┌────▼────┐      ┌─────▼────┐      ┌──────▼────┐
+    │PROMETHEUS│      │   LOKI   │      │  TEMPO   │
+    │ (9090)  │      │ (3100)   │      │(3200/4317)
+    └────▲────┘      └─────▲────┘      └──────▲────┘
+         │                  │                    │
+         └──────────────────┼────────────────────┘
+                            │
+                  ┌─────────▼──────────┐
+                  │  ALLOY (12345)     │
+                  │ Unified Collector  │
+                  │ • Scrapes metrics  │
+                  │ • Tails log files  │
+                  │ • Receives traces  │
+                  └─────────▲──────────┘
+                            │
+        ┌───────────────────┼───────────────────┐
+        │                   │                   │
+    ┌───▼──────────┐   ┌────▼─────────┐   ┌───▼──────────┐
+    │ WEATHER      │   │RECOMMENDATIONS   │ SHARED LOGS  │
+    │ SERVICE      │   │ SERVICE          │ VOLUME       │
+    │ (8000)       │   │ (8001)           │ ./logs/      │
+    │              │   │                  │              │
+    │ • Metrics    │   │ • Metrics        │ ← Both write │
+    │ • Logging    │   │ • Logging        │  to /var/log │
+    │ • Tracing    │   │ • Tracing        │              │
+    └──────────────┘   └──────────────────┘              │
+         │ (OTLP)            │ (OTLP)                    │
+         └──────────────────┬─────────────────────────────┘
+                            │
+                    Alloy:4317 (OTLP Receiver)
+                            │
+                            ▼
+                    Tempo:4317 (Trace Storage)
+```
+
+### Data Pipeline Components
+
+**Metrics Pipeline**:
+
+```
+weather-service:8000/metrics → Prometheus:9090 → Time-series DB → Grafana
+```
+
+**Logs Pipeline**:
+
+```
+Services → ./logs/*.log → Shared Volume → Alloy → Loki:3100 → Grafana
+```
+
+**Traces Pipeline**:
+
+```
+Services (OTLP) → Alloy:4317 → Tempo:4317 → Trace Storage → Grafana
 ```
 
 ---
 
-## Architecture
-
-```
-┌──────────────────────────────────────────────────────────┐
-│         Weather Service (FastAPI :8000)                  │
-│  Endpoints:                                              │
-│  - GET /health              → Health check               │
-│  - GET /prediction          → Weather prediction         │
-│  - GET /prediction?location → Location-specific          │
-│  - GET /locations           → Available locations        │
-│  - GET /metrics             → Prometheus metrics         │
-│                                                          │
-│  Metrics Exposed:                                        │
-│  • weather_predictions_total (counter)                   │
-│  • weather_prediction_latency_seconds (histogram)        │
-│  • weather_temperature_celsius (gauge)                   │
-│  • weather_humidity_percent (gauge)                      │
-│  • weather_pressure_hpa (gauge)                          │
-│  • weather_wind_speed_kmh (gauge)                        │
-│  • weather_precipitation_mm (gauge)                      │
-│  • api_requests_total (counter)                          │
-└────────────────────────┬─────────────────────────────────┘
-                         │
-              (scrapes /metrics every 15s)
-                         ↓
-┌──────────────────────────────────────────────────────────┐
-│      Prometheus (Time-Series DB :9090)                   │
-│  • Stores metrics from weather service                   │
-│  • 15s scrape interval                                   │
-│  • Persistent data in Docker volume                      │
-│  • Query interface at /api/v1/query                      │
-└────────────────────────┬─────────────────────────────────┘
-                         │
-            (queries for dashboard visualization)
-                         ↓
-┌──────────────────────────────────────────────────────────┐
-│     Grafana (Visualization & UI :3000)                   │
-│  • Auto-provisioned Prometheus data source               │
-│  • Pre-loaded Weather Service Monitoring dashboard       │
-│  • 6 pre-configured panels                               │
-│  • Login: admin / admin                                  │
-└──────────────────────────────────────────────────────────┘
-```
-
-### Data Flow
-
-```
-Weather Service generates metrics
-         ↓
-Prometheus scrapes every 15s
-         ↓
-Metrics stored in time-series database
-         ↓
-Grafana queries Prometheus
-         ↓
-Dashboard visualizes data
-```
-
----
-
-## Project Structure
+## 📂 Project Structure
 
 ```
 grafana_stack/
 │
-├── README.md                                    ← You are here
-│
-├── docker-compose.yml                          ← Services orchestration
+├── docker-compose.yml                   ← Services orchestration
+├── generate_data.py                     ← Data generation utility
+├── README_CONSOLIDATED.md               ← You are here
 │
 ├── weather_service/
-│   ├── main.py                                 ← FastAPI app + Prometheus metrics
-│   ├── weather_predictor.py                    ← Weather prediction logic
-│   ├── requirements.txt                        ← Python dependencies
-│   ├── Dockerfile                              ← Container image
-│   ├── README.md                               ← Service-specific docs
-│   └── .venv/                                  ← Virtual environment
+│   ├── main.py                         ← FastAPI app with metrics & tracing
+│   ├── weather_predictor.py            ← Weather logic
+│   ├── requirements.txt                ← Dependencies
+│   ├── Dockerfile                      ← Container image
+│   └── .venv/                          ← Virtual environment
+│
+├── recommendations_service/
+│   ├── main.py                         ← FastAPI app with tracing
+│   ├── requirements.txt                ← Dependencies
+│   ├── Dockerfile                      ← Container image
+│   └── .venv/                          ← Virtual environment
+│
+├── alloy/
+│   ├── config.alloy                    ← Unified collector config
+│   └── Dockerfile                      ← Custom Alloy image
 │
 ├── prometheus/
-│   └── prometheus.yml                          ← Scrape configuration
+│   └── prometheus.yml                  ← Scrape configuration
 │
-└── grafana/
-    ├── manage_dashboards.py                    ← Python API client
-    ├── provisioning/
-    │   ├── datasources/
-    │   │   └── prometheus.yml                  ← Data source config
-    │   └── dashboards/
-    │       ├── dashboards.yml                  ← Dashboard provider
-    │       └── weather-dashboard.json          ← Dashboard definition (6 panels)
-    └── README.md                               ← Setup guide
+├── loki/
+│   └── loki-config.yml                 ← Log storage config
+│
+├── tempo/
+│   └── tempo-config.yml                ← Trace storage config
+│
+├── grafana/
+│   ├── provisioning/
+│   │   ├── datasources/
+│   │   │   └── prometheus.yml         ← Datasource definitions
+│   │   └── dashboards/
+│   │       ├── dashboards.yml         ← Dashboard provider config
+│   │       └── weather-dashboard.json ← Main dashboard (6 panels)
+│   └── manage_dashboards.py           ← Python API client
+│
+└── logs/                               ← Shared log volume (bind mount)
+    ├── weather-service.log            ← Weather service logs
+    └── recommendations-service.log    ← Recommendations service logs
 ```
 
 ---
 
-## Services & Endpoints
+## 🔌 Services & Endpoints
 
-### Weather Service (FastAPI)
+### Weather Service (FastAPI, Port 8000)
 
 **Health Check**
 
 ```bash
 curl http://localhost:8000/health
-# Response: {"status":"healthy"}
+# {"status":"healthy"}
 ```
 
-**Get Weather Prediction (Random Location)**
+**Get Weather Prediction**
 
 ```bash
 curl http://localhost:8000/prediction | jq
-# Response:
 # {
 #   "location": "London",
-#   "timestamp": "2026-01-15T04:46:24.000276",
 #   "temperature_celsius": 14.84,
 #   "humidity_percent": 93.98,
-#   "pressure_hpa": 997.25,
-#   "wind_speed_kmh": 46.3,
-#   "precipitation_mm": 3.25,
 #   "condition": "sunny"
 # }
 ```
 
-**Get Weather Prediction (Specific Location)**
+**Get Weather for Specific Location**
 
 ```bash
 curl "http://localhost:8000/prediction?location=Tokyo" | jq
@@ -201,7 +231,7 @@ curl "http://localhost:8000/prediction?location=Tokyo" | jq
 
 ```bash
 curl http://localhost:8000/locations | jq
-# Response: {"locations": ["New York", "Los Angeles", "London", "Tokyo", "Sydney"]}
+# {"locations": ["New York", "London", "Tokyo", "Sydney", "Los Angeles"]}
 ```
 
 **View Prometheus Metrics**
@@ -210,306 +240,261 @@ curl http://localhost:8000/locations | jq
 curl http://localhost:8000/metrics | head -50
 ```
 
-### Prometheus
+### Recommendations Service (FastAPI, Port 8001)
 
-**Query Interface**
+**Get Recommendations**
 
+```bash
+curl "http://localhost:8001/recommendations?location=Mumbai" | jq
 ```
-http://localhost:9090/graph
+
+**Health Check**
+
+```bash
+curl http://localhost:8001/health
 ```
 
-**Check Scrape Targets**
+### Prometheus (Port 9090)
+
+**Query Interface**: http://localhost:9090/graph
+
+**Check Active Targets**
 
 ```bash
 curl http://localhost:9090/api/v1/targets | jq '.data.activeTargets'
 ```
 
-**Query Metrics (API)**
+**Query Metrics via API**
 
 ```bash
-curl 'http://localhost:9090/api/v1/query?query=weather_temperature_celsius' | jq
+curl 'http://localhost:9090/api/v1/query?query=weather_temperature_celsius'
 ```
 
-### Grafana
+### Loki (Port 3100)
 
-**Access Dashboard**
+**Check Available Labels**
 
+```bash
+curl -s 'http://localhost:3100/loki/api/v1/labels'
 ```
-http://localhost:3000/d/weather-service-poc/weather-service-monitoring
+
+**Query Logs**
+
+```bash
+curl -s 'http://localhost:3100/loki/api/v1/query_range?query={job="weather-service"}'
 ```
 
-**API Operations** (see [Using Grafana API](#using-grafana-api-with-python))
+### Tempo (Port 3200 HTTP, 4317 gRPC)
+
+**Search Traces**
+
+```bash
+curl -s 'http://localhost:3200/api/search' | python3 -m json.tool
+```
+
+**List Trace Limits**
+
+```bash
+curl -s 'http://localhost:3200/api/search?limit=20'
+```
 
 ---
 
-## Dashboard Provisioning Methods
+## 📊 Data Pipelines
 
-Grafana dashboards can be created and managed in three different ways. This POC demonstrates all three approaches.
+### Logs Pipeline ✅
 
-### Method 1: Provisioning Files (Currently Active) ⭐ RECOMMENDED
+**Flow**: Services → Shared Volume → Alloy → Loki → Grafana
 
-**What It Is**: Dashboards and data sources defined as YAML/JSON files that are automatically loaded when Grafana starts.
+**How It Works**:
 
-**Pros**:
+1. Both `weather-service` and `recommendations-service` write JSON logs to `/var/log/`
+2. `./logs/` bind mount on host shares this directory with Alloy container
+3. Alloy's `loki.source.file` component tails both log files
+4. Logs are labeled with `job="weather-service"` or `job="recommendations-service"`
+5. Alloy forwards logs to Loki:3100
+6. Grafana displays logs in "Service Logs" panel
 
-- ✅ Version-controlled
-- ✅ No manual UI setup required
-- ✅ Reproducible across environments
-- ✅ Easy to track changes in Git
-- ✅ Ideal for POCs and reproducible setups
+**Current Status**:
 
-**Cons**:
+- ✅ 75+ log entries collected
+- ✅ Both services writing successfully
+- ✅ Alloy tailing files
+- ✅ Loki receiving with proper labels
+- ✅ Visible in Grafana
 
-- Can't modify via UI (unless `allowUiUpdates: true`)
-- Requires Grafana restart for changes
+### Traces Pipeline ✅
 
-**Files Involved**:
+**Flow**: Services (OTLP) → Alloy:4317 → Tempo:4317 → Grafana
 
-- `grafana/provisioning/datasources/prometheus.yml` - Data source definition
-- `grafana/provisioning/dashboards/dashboards.yml` - Provider configuration
-- `grafana/provisioning/dashboards/weather-dashboard.json` - Dashboard JSON
+**How It Works**:
 
-**How to Use**:
+1. Both services use OpenTelemetry SDK for automatic tracing
+2. Services export traces via OTLP protocol to Alloy:4317
+3. Alloy's `otelcol.receiver.otlp` receives gRPC traces
+4. Alloy's `otelcol.exporter.otlp` forwards to Tempo:4317
+5. Tempo stores traces in local filesystem backend
+6. Grafana queries Tempo and displays traces with full dependency tree
 
-1. Edit the dashboard JSON file:
+**Current Status**:
 
-```bash
-vi grafana/provisioning/dashboards/weather-dashboard.json
+- ✅ 17+ distributed traces stored
+- ✅ Service names properly identified (weather-service, recommendations-service)
+- ✅ Trace tree visualization working
+- ✅ Latency metrics calculated from traces
+- ✅ Visible in Grafana
+
+**OpenTelemetry Configuration**:
+
+```python
+# In both services
+from opentelemetry import trace
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.resources import Resource
+from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+from opentelemetry.sdk.trace.export import BatchSpanProcessor
+
+resource = Resource.create({"service.name": "weather-service"})  # or recommendations-service
+otlp_exporter = OTLPSpanExporter(endpoint="http://alloy:4317")
+trace.set_tracer_provider(TracerProvider(resource=resource))
+trace.get_tracer_provider().add_span_processor(
+    BatchSpanProcessor(otlp_exporter)
+)
 ```
 
-2. Make your changes (add panels, modify queries, etc.)
+### Metrics Pipeline ✅
 
-3. Restart Grafana:
+**Flow**: weather-service:8000/metrics → Prometheus:9090 → Grafana
 
-```bash
-docker-compose restart grafana
+**How It Works**:
+
+1. weather-service exposes Prometheus metrics on `/metrics` endpoint
+2. Prometheus scrapes every 15 seconds
+3. Metrics are stored in Prometheus time-series database
+4. Grafana queries via PromQL
+5. Panels display time-series graphs
+
+**Current Status**:
+
+- ✅ 6+ metric types collected
+- ✅ Scraping every 15 seconds
+- ✅ All metric panels in Grafana showing data
+- ✅ PromQL queries working
+
+**Available Metrics**:
+
+```promql
+weather_predictions_total        # Counter
+weather_prediction_latency_seconds # Histogram
+weather_temperature_celsius      # Gauge
+weather_humidity_percent         # Gauge
+http_requests_total              # Counter
+http_request_duration_seconds    # Histogram
 ```
 
-4. Verify changes at http://localhost:3000/d/weather-service-poc
+---
 
-**Example: Add a New Panel**
+## 📈 Dashboard & Visualization
 
-Edit `weather-dashboard.json` and add to the `panels` array:
+### Main Dashboard
 
-```json
-{
-  "id": 7,
-  "title": "Wind Speed by Location",
-  "type": "timeseries",
-  "gridPos": { "h": 8, "w": 12, "x": 0, "y": 24 },
-  "targets": [
-    {
-      "expr": "weather_wind_speed_kmh",
-      "legendFormat": "{{location}}",
-      "refId": "A"
-    }
-  ],
-  "fieldConfig": {
-    "defaults": {
-      "unit": "km/h",
-      "custom": {}
-    },
-    "overrides": []
-  }
-}
+**URL**: http://localhost:3000/d/cfa87vmjw1ou8c
+
+**Credentials**: admin / admin
+
+### Dashboard Panels
+
+The main dashboard contains 6 panels covering all observability signals:
+
+#### Panel 1: API Request Rate (Metrics)
+
+- **Type**: Time-series graph
+- **Source**: Prometheus
+- **Query**: `rate(http_requests_total[1m])`
+- **Shows**: Request traffic over time
+
+#### Panel 2: Current Temperature (Metrics)
+
+- **Type**: Gauge
+- **Source**: Prometheus
+- **Query**: `weather_temperature_celsius`
+- **Shows**: Latest temperature reading
+
+#### Panel 3: Weather Conditions Distribution (Metrics)
+
+- **Type**: Pie chart
+- **Source**: Prometheus
+- **Query**: `weather_predictions_total by (condition)`
+- **Shows**: Percentage breakdown of weather conditions
+
+#### Panel 4: Service Logs (Logs)
+
+- **Type**: Logs panel
+- **Source**: Loki
+- **Query**: `{job=~"weather-service|recommendations-service"}`
+- **Shows**: Real-time logs from both services
+- **Features**: Filterable by level, searchable
+
+#### Panel 5: Distributed Traces (Traces)
+
+- **Type**: Table with trace links
+- **Source**: Tempo
+- **Query**: TraceQL search `{}`
+- **Shows**: Recent traces with service name, operation, duration
+- **Features**: Clickable to view full trace tree
+
+#### Panel 6: Service Latency (Traces)
+
+- **Type**: Stat panel
+- **Source**: Tempo
+- **Query**: Calculates average latency from trace spans
+- **Shows**: Average latency metrics per service
+
+---
+
+## 🔧 Grafana API & Programmatic Access
+
+### Using the Python Client
+
+The `grafana/manage_dashboards.py` script provides a Python API client for Grafana operations.
+
+**Initialize Client**:
+
+```python
+from grafana.manage_dashboards import GrafanaClient
+
+client = GrafanaClient(
+    base_url="http://localhost:3000",
+    username="admin",
+    password="admin"
+)
 ```
 
-### Method 2: Grafana HTTP API (Programmatic)
+**Available Methods**:
 
-**What It Is**: RESTful API calls to create, update, and delete dashboards dynamically.
+```python
+# Data Sources
+client.get_data_sources()              # List all
+client.create_datasource(name, url)    # Create new
 
-**Pros**:
+# Dashboards
+client.list_dashboards()               # List all
+client.get_dashboard(uid)              # Get by UID
+client.create_dashboard(config)        # Create/update
+client.delete_dashboard(uid)           # Delete by UID
+```
 
-- ✅ Dynamic creation without restart
-- ✅ Can be triggered from CI/CD
-- ✅ Scriptable and flexible
-- ✅ Suitable for automation
-
-**Cons**:
-
-- Requires API authentication
-- Must manage dashboard state manually
-- Not version-controlled by default
-
-**Using the Python Client**:
+**List All Dashboards**:
 
 ```bash
 python grafana/manage_dashboards.py
 ```
 
-This script demonstrates:
-
-- Listing dashboards
-- Creating new dashboards
-- Testing connection
-- API usage examples
-
-**Python Example**:
-
-```python
-from grafana.manage_dashboards import GrafanaClient
-
-client = GrafanaClient(
-    base_url="http://localhost:3000",
-    username="admin",
-    password="admin"
-)
-
-# List all dashboards
-dashboards = client.list_dashboards()
-for db in dashboards:
-    print(f"📊 {db['title']} (uid: {db['uid']})")
-
-# Create new dashboard
-new_dashboard = {
-    "title": "API Performance",
-    "tags": ["api", "performance"],
-    "panels": [
-        {
-            "id": 1,
-            "title": "Request Rate",
-            "type": "timeseries",
-            "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
-            "targets": [
-                {
-                    "expr": "rate(api_requests_total[1m])",
-                    "legendFormat": "{{endpoint}}",
-                    "refId": "A"
-                }
-            ]
-        }
-    ]
-}
-
-result = client.create_dashboard(new_dashboard)
-print(f"✅ Created: {result['title']}")
-```
-
-**curl Example**:
-
-```bash
-# Create dashboard via API
-curl -X POST http://localhost:3000/api/dashboards/db \
-  -H "Content-Type: application/json" \
-  -u admin:admin \
-  -d '{
-    "dashboard": {
-      "title": "Custom Dashboard",
-      "panels": [],
-      "refresh": "30s",
-      "schemaVersion": 27,
-      "version": 0
-    },
-    "overwrite": true
-  }'
-```
-
-### Method 3: Grafonnet (Template-Based, Advanced)
-
-**What It Is**: Generate dashboards using Jsonnet, a powerful templating language.
-
-**Pros**:
-
-- ✅ Highly reusable components
-- ✅ DRY (Don't Repeat Yourself) principle
-- ✅ Programmatic generation
-- ✅ Best for large-scale deployments
-
-**Cons**:
-
-- Steeper learning curve
-- Requires jsonnet CLI installed
-- More complex setup
-
-**Example (Simplified Grafonnet)**:
-
-```jsonnet
-local grafana = import 'grafonnet/grafana.libsonnet';
-local prometheus = 'Prometheus';
-
-grafana.dashboard.new('Weather Service')
-  .addPanel(
-    grafana.timeSeries.new('Temperature')
-      .addTarget(
-        grafana.target.prometheus(
-          'weather_temperature_celsius',
-          legendFormat='{{location}}'
-        )
-      )
-      .setGridPos(h=8, w=12, x=0, y=0)
-  )
-```
-
-**When to Use Each Method**:
-
-| Scenario                     | Best Method         |
-| ---------------------------- | ------------------- |
-| Development & POC            | **Provisioning** ⭐ |
-| Manual one-off dashboards    | API (UI)            |
-| Automation & CI/CD           | **API (Python)**    |
-| Large enterprise deployments | **Grafonnet**       |
-| Version control critical     | **Provisioning**    |
-
----
-
-## Using Grafana API with Python
-
-### Installation
-
-The `grafana/manage_dashboards.py` script provides a Python client for the Grafana API.
-
-### GrafanaClient Class
-
-```python
-from grafana.manage_dashboards import GrafanaClient
-
-# Initialize client
-client = GrafanaClient(
-    base_url="http://localhost:3000",
-    username="admin",
-    password="admin"
-)
-```
-
-### Available Methods
-
-```python
-# Data Sources
-client.get_data_sources()                           # List all data sources
-client.create_datasource(name, url, ds_type)       # Create new data source
-
-# Dashboards
-client.list_dashboards()                            # List all dashboards
-client.get_dashboard(uid)                           # Get dashboard by UID
-client.create_dashboard(dashboard_json)             # Create or update dashboard
-client.delete_dashboard(uid)                        # Delete dashboard by UID
-```
-
-### Code Examples
-
-**List All Dashboards**
-
-```python
-client = GrafanaClient()
-dashboards = client.list_dashboards()
-
-for db in dashboards:
-    print(f"{db['title']} ({db['uid']})")
-```
-
-**Get Dashboard Details**
-
-```python
-dashboard = client.get_dashboard('weather-service-poc')
-print(f"Panels: {len(dashboard['dashboard']['panels'])}")
-print(f"Tags: {dashboard['dashboard']['tags']}")
-```
-
-**Create New Dashboard**
+**Create Dashboard via API**:
 
 ```python
 new_dashboard = {
-    "title": "My Dashboard",
+    "title": "Custom Dashboard",
     "tags": ["custom"],
     "panels": [],
     "refresh": "30s",
@@ -521,318 +506,236 @@ result = client.create_dashboard(new_dashboard)
 print(f"Created: {result['title']} (uid: {result['uid']})")
 ```
 
-**Clone Existing Dashboard**
-
-```python
-# Get source
-source = client.get_dashboard('weather-service-poc')
-
-# Modify
-source['dashboard']['title'] = "Weather Service - Backup"
-source['dashboard']['id'] = None
-source['dashboard']['uid'] = None
-
-# Create clone
-result = client.create_dashboard(source['dashboard'])
-print(f"Cloned to: {result['title']}")
-```
-
-**Export Dashboard to JSON**
-
-```python
-import json
-
-dashboard = client.get_dashboard('weather-service-poc')
-
-with open('exported-dashboard.json', 'w') as f:
-    json.dump(dashboard['dashboard'], f, indent=2)
-
-print("✅ Dashboard exported")
-```
-
-### CI/CD Integration Example
+**curl API Example**:
 
 ```bash
-#!/bin/bash
-# deploy-dashboard.sh
-
-GRAFANA_URL="http://localhost:3000"
-GRAFANA_USER="admin"
-GRAFANA_PASS="admin"
-
-# Read dashboard from file
-DASHBOARD=$(cat dashboards/weather-dashboard.json)
-
-# Create/update dashboard
-curl -X POST "$GRAFANA_URL/api/dashboards/db" \
+curl -X POST http://localhost:3000/api/dashboards/db \
   -H "Content-Type: application/json" \
-  -u "$GRAFANA_USER:$GRAFANA_PASS" \
-  -d "{
-    \"dashboard\": $DASHBOARD,
-    \"overwrite\": true
-  }"
-
-echo "✅ Dashboard deployed"
-```
-
-### Error Handling
-
-```python
-from grafana.manage_dashboards import GrafanaClient
-
-client = GrafanaClient()
-
-try:
-    dashboard = client.get_dashboard('nonexistent')
-    if dashboard is None:
-        print("Dashboard not found")
-    else:
-        print(f"Found: {dashboard['dashboard']['title']}")
-except Exception as e:
-    print(f"Error: {type(e).__name__}: {e}")
-```
-
----
-
-## PromQL Queries & Examples
-
-### Basic Queries
-
-**Get All Temperature Readings**
-
-```promql
-weather_temperature_celsius
-```
-
-**Temperature for Specific Location**
-
-```promql
-weather_temperature_celsius{location="London"}
-```
-
-**Get Latest Prediction Count**
-
-```promql
-weather_predictions_total
-```
-
-### Rate Calculations
-
-**Predictions Per Minute**
-
-```promql
-rate(weather_predictions_total[1m])
-```
-
-**Predictions Per Hour**
-
-```promql
-rate(weather_predictions_total[1h])
-```
-
-**API Request Rate Per Endpoint**
-
-```promql
-rate(api_requests_total[1m])
-```
-
-### Aggregations
-
-**Average Temperature Across All Locations**
-
-```promql
-avg(weather_temperature_celsius)
-```
-
-**Max Temperature**
-
-```promql
-max(weather_temperature_celsius)
-```
-
-**Min Temperature**
-
-```promql
-min(weather_temperature_celsius)
-```
-
-### Histograms & Percentiles
-
-**95th Percentile of Prediction Latency (5 minute window)**
-
-```promql
-histogram_quantile(0.95, rate(weather_prediction_latency_seconds_bucket[5m]))
-```
-
-**99th Percentile**
-
-```promql
-histogram_quantile(0.99, rate(weather_prediction_latency_seconds_bucket[5m]))
-```
-
-**Average Latency**
-
-```promql
-rate(weather_prediction_latency_seconds_sum[5m]) / rate(weather_prediction_latency_seconds_count[5m])
-```
-
-### Time Range Queries
-
-**Temperature Change Over Last Hour**
-
-```promql
-weather_temperature_celsius offset 1h
-```
-
-**Predictions Over Last 24 Hours**
-
-```promql
-increase(weather_predictions_total[24h])
-```
-
-### Combining Queries
-
-**Weather Conditions and Their Temperatures**
-
-```promql
-avg by (condition) (weather_predictions_total)
-```
-
-**Request Rate by Endpoint**
-
-```promql
-sum by (endpoint) (rate(api_requests_total[1m]))
-```
-
-### Testing in Prometheus UI
-
-1. Go to http://localhost:9090/graph
-2. Enter query in the search box
-3. Click "Execute"
-4. View results in table or graph format
-
----
-
-## Customization Guide
-
-### Adding New Metrics to Weather Service
-
-Edit [weather_service/main.py](weather_service/main.py):
-
-```python
-from prometheus_client import Gauge
-
-# Add new metric
-weather_anomaly_score = Gauge(
-    "weather_anomaly_score",
-    "Anomaly detection score",
-    ["location"]
-)
-
-# In your endpoint
-@app.get("/prediction")
-def get_prediction(location: str = Query(None)):
-    prediction = weather_predictor.get_prediction(location)
-
-    # Update new metric
-    anomaly = calculate_anomaly(prediction)
-    weather_anomaly_score.labels(location=pred_location).set(anomaly)
-
-    return prediction
-```
-
-### Adding New Dashboard Panels
-
-Edit `grafana/provisioning/dashboards/weather-dashboard.json`:
-
-```json
-{
-  "id": 8,
-  "title": "New Panel",
-  "type": "stat",
-  "gridPos": { "h": 4, "w": 6, "x": 0, "y": 32 },
-  "targets": [
-    {
-      "expr": "avg(weather_temperature_celsius)",
-      "refId": "A"
-    }
-  ],
-  "fieldConfig": {
-    "defaults": {
-      "unit": "°C",
-      "custom": {}
+  -u admin:admin \
+  -d '{
+    "dashboard": {
+      "title": "API Dashboard",
+      "panels": [],
+      "refresh": "30s",
+      "schemaVersion": 27,
+      "version": 0
     },
-    "overrides": []
-  }
-}
+    "overwrite": true
+  }'
 ```
 
-Then restart Grafana:
+---
+
+## 🎯 Common Operations
+
+### Stack Management
+
+**Start Stack**:
+
+```bash
+docker-compose up -d
+```
+
+**Stop Stack**:
+
+```bash
+docker-compose down
+```
+
+**Restart Specific Service**:
 
 ```bash
 docker-compose restart grafana
 ```
 
-### Changing Refresh Interval
-
-In the dashboard JSON, modify the `refresh` field:
-
-```json
-"refresh": "10s"   // Refresh every 10 seconds
-```
-
-Or via API:
+**View Logs**:
 
 ```bash
-curl -X PATCH http://localhost:3000/api/dashboards/db \
-  -u admin:admin \
-  -H "Content-Type: application/json" \
-  -d '{"dashboard":{"refresh":"10s"}}'
+docker-compose logs -f weather-service    # Follow logs
+docker-compose logs --tail=50 prometheus  # Last 50 lines
 ```
 
-### Adding Variables/Filters
-
-Add to `templating.list` in dashboard JSON:
-
-```json
-"templating": {
-  "list": [
-    {
-      "name": "location",
-      "type": "query",
-      "datasource": "Prometheus",
-      "query": "label_values(weather_temperature_celsius, location)",
-      "refresh": "on page load"
-    }
-  ]
-}
-```
-
-Use variable in queries: `{location="$location"}`
-
-### Changing Scrape Interval
-
-Edit `prometheus/prometheus.yml`:
-
-```yaml
-global:
-  scrape_interval: 10s # Change from 15s to 10s
-  evaluation_interval: 10s
-```
-
-Then restart Prometheus:
+**Full Rebuild** (removes volumes):
 
 ```bash
-docker-compose restart prometheus
+docker-compose down -v
+rm -rf logs && mkdir -p logs
+docker-compose up -d
+```
+
+### Data Generation
+
+**Quick Test** (single request):
+
+```bash
+curl "http://localhost:8001/recommendations?location=TestCity"
+```
+
+**Generate 10 Requests**:
+
+```bash
+for i in {1..10}; do
+  curl "http://localhost:8001/recommendations?location=City_$i"
+  sleep 0.3
+done
+```
+
+**Generate 50 Requests** (comprehensive test):
+
+```bash
+for i in {1..50}; do
+  curl "http://localhost:8001/recommendations?location=Location_$i"
+  sleep 0.2
+done
+```
+
+### Verify Data Collection
+
+**Check Log Files**:
+
+```bash
+wc -l logs/*.log
+ls -lh logs/
+```
+
+**Verify Loki Received Logs**:
+
+```bash
+curl -s 'http://localhost:3100/loki/api/v1/labels' | python3 -m json.tool
+```
+
+**Check Tempo Traces**:
+
+```bash
+curl -s 'http://localhost:3200/api/search?limit=5' | python3 -m json.tool
+```
+
+**Verify Prometheus Metrics**:
+
+```bash
+curl -s 'http://localhost:9090/api/v1/query?query=up' | python3 -m json.tool
+```
+
+### Dashboard Operations
+
+**View in Browser**:
+
+```bash
+open http://localhost:3000/d/cfa87vmjw1ou8c  # macOS
+xdg-open http://localhost:3000/d/cfa87vmjw1ou8c  # Linux
+```
+
+**Export Dashboard**:
+
+```python
+import json
+from grafana.manage_dashboards import GrafanaClient
+
+client = GrafanaClient()
+dashboard = client.get_dashboard('cfa87vmjw1ou8c')
+
+with open('exported-dashboard.json', 'w') as f:
+    json.dump(dashboard['dashboard'], f, indent=2)
 ```
 
 ---
 
-## Troubleshooting
+## 🔍 PromQL Query Examples
+
+### Basic Queries
+
+**All Metrics Available**:
+
+```promql
+{__name__=~".+"}
+```
+
+**Temperature by Location**:
+
+```promql
+weather_temperature_celsius
+```
+
+**Specific Location Only**:
+
+```promql
+weather_temperature_celsius{location="Tokyo"}
+```
+
+### Rate Calculations
+
+**Request Rate (requests per second)**:
+
+```promql
+rate(http_requests_total[1m])
+```
+
+**Requests per Minute**:
+
+```promql
+rate(http_requests_total[1m]) * 60
+```
+
+**Increase Over Last Hour**:
+
+```promql
+increase(http_requests_total[1h])
+```
+
+### Aggregations
+
+**Average Temperature**:
+
+```promql
+avg(weather_temperature_celsius)
+```
+
+**Max Temperature**:
+
+```promql
+max(weather_temperature_celsius)
+```
+
+**Temperature by Condition**:
+
+```promql
+avg by (condition) (weather_temperature_celsius)
+```
+
+### Latency Analysis
+
+**Average Request Latency**:
+
+```promql
+rate(http_request_duration_seconds_sum[5m]) / rate(http_request_duration_seconds_count[5m])
+```
+
+**95th Percentile Latency**:
+
+```promql
+histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m]))
+```
+
+**99th Percentile Latency**:
+
+```promql
+histogram_quantile(0.99, rate(http_request_duration_seconds_bucket[5m]))
+```
+
+### Test in Prometheus UI
+
+1. Visit http://localhost:9090/graph
+2. Enter query in search box
+3. Click "Execute"
+4. View in table or graph format
+
+---
+
+## 🐛 Troubleshooting
 
 ### Services Won't Start
 
-**Check logs**:
+**Check Logs**:
 
 ```bash
 docker-compose logs weather-service
@@ -840,240 +743,389 @@ docker-compose logs prometheus
 docker-compose logs grafana
 ```
 
-**Verify Docker is running**:
+**Verify Docker Running**:
 
 ```bash
 docker ps
+docker-compose ps
 ```
 
-**Check port availability**:
+**Check Port Availability**:
 
 ```bash
-lsof -i :8000   # Weather service
-lsof -i :9090   # Prometheus
 lsof -i :3000   # Grafana
+lsof -i :9090   # Prometheus
+lsof -i :3100   # Loki
+lsof -i :3200   # Tempo
+lsof -i :4317   # Tempo OTLP
 ```
 
-### Dashboard Not Showing
-
-**Check provisioning was loaded**:
+**Rebuild Stack**:
 
 ```bash
-docker-compose logs grafana | grep -i provisioning
+docker-compose down -v
+docker-compose up -d
 ```
 
-**Verify files exist**:
+### Logs Not Showing
+
+**Check Log Files Exist**:
 
 ```bash
-docker exec grafana ls -la /etc/grafana/provisioning/dashboards/
+ls -la logs/
+wc -l logs/*.log
 ```
 
-**Restart Grafana**:
+**Verify Shared Volume**:
 
 ```bash
-docker-compose restart grafana
+docker exec alloy ls -la /var/log/
 ```
 
-**Check API directly**:
+**Restart Alloy**:
 
 ```bash
-curl http://localhost:3000/api/dashboards/uid/weather-service-poc -u admin:admin
+docker-compose restart alloy
 ```
 
-### Prometheus Not Scraping
-
-**Check targets**:
+**Check Alloy Logs**:
 
 ```bash
-curl http://localhost:9090/api/v1/targets | jq '.data.activeTargets'
+docker-compose logs alloy | grep -i error
 ```
 
-**Verify weather service health**:
+**Check Loki Status**:
 
 ```bash
-curl http://localhost:8000/health
+curl -s 'http://localhost:3100/ready'
 ```
 
-**Check metrics endpoint**:
+### Traces Not Appearing
+
+**Check Tempo Running**:
 
 ```bash
-curl http://localhost:8000/metrics | head -20
+docker-compose ps | grep tempo
 ```
 
-### Grafana Can't Connect to Prometheus
+**Verify OTLP Receiver**:
 
-**Test connection inside container**:
+```bash
+docker exec alloy curl -s http://localhost:4317 2>&1
+```
+
+**Check Service Connectivity**:
+
+```bash
+docker exec weather-service curl -s http://alloy:4317 2>&1
+```
+
+**Restart Services**:
+
+```bash
+docker-compose restart weather-service recommendations-service
+```
+
+### Metrics Not in Prometheus
+
+**Check weather-service Metrics**:
+
+```bash
+curl -s 'http://localhost:8000/metrics' | head -20
+```
+
+**Check Prometheus Targets**:
+
+```
+http://localhost:9090/targets
+```
+
+**Verify Scrape Config**:
+
+```bash
+docker-compose exec prometheus cat /etc/prometheus/prometheus.yml
+```
+
+**Check Prometheus Logs**:
+
+```bash
+docker-compose logs prometheus | grep -i error
+```
+
+### Grafana Can't Connect to Datasources
+
+**Test Prometheus Connection**:
 
 ```bash
 docker exec grafana curl http://prometheus:9090/api/v1/targets
 ```
 
-**In Grafana data source settings, use**: `http://prometheus:9090` (not localhost)
-
-### API Connection Issues
-
-**Test Grafana API**:
+**Test Loki Connection**:
 
 ```bash
-curl http://localhost:3000/api/datasources -u admin:admin
+docker exec grafana curl http://loki:3100/ready
 ```
 
-**Run Python client test**:
+**Test Tempo Connection**:
+
+```bash
+docker exec grafana curl http://tempo:3200/ready
+```
+
+**Check Datasources in Grafana**:
+
+```bash
+curl -s http://localhost:3000/api/datasources -u admin:admin | python3 -m json.tool
+```
+
+### Dashboard Not Displaying
+
+**Verify Dashboard Exists**:
+
+```bash
+curl -s http://localhost:3000/api/dashboards/uid/cfa87vmjw1ou8c -u admin:admin
+```
+
+**Check Panel Errors**:
+
+- Open Grafana dashboard
+- Look for red error indicators on panels
+- Click panel to see error details
+
+**Recreate Dashboard**:
 
 ```bash
 python grafana/manage_dashboards.py
 ```
 
-### Permission Denied Errors
+### Alloy Not Collecting Data
 
-**Check file permissions**:
+**Check Alloy Config**:
 
 ```bash
-ls -la grafana/provisioning/
-ls -la prometheus/
+docker-compose exec alloy cat /etc/alloy/config.alloy
 ```
 
-**Fix permissions**:
+**Verify Alloy Health**:
 
 ```bash
-chmod -R 644 grafana/provisioning/
-chmod -R 644 prometheus/
+docker-compose logs alloy | tail -30
 ```
 
-### Container Crashes on Startup
-
-**Check system resources**:
+**Test Alloy Connectivity**:
 
 ```bash
-docker stats
+docker exec alloy curl -s http://prometheus:9090/api/v1/targets
+docker exec alloy curl -s http://loki:3100/ready
+docker exec alloy curl -s http://tempo:3200/ready
 ```
 
-**Try rebuilding**:
+**Restart Alloy**:
 
 ```bash
-docker-compose down
-DOCKER_BUILDKIT=0 docker-compose build --no-cache
-docker-compose up -d
+docker-compose restart alloy
 ```
 
 ---
 
-## Common Commands
+## 🛠️ Advanced Customization
 
-### Stack Management
+### Adding New Metrics
 
-```bash
-# Start stack
-docker-compose up -d
+Edit `weather_service/main.py`:
 
-# Stop stack
-docker-compose down
+```python
+from prometheus_client import Counter, Gauge, Histogram
 
-# Stop and remove volumes
-docker-compose down -v
+# Add new metric
+prediction_accuracy = Gauge(
+    'weather_prediction_accuracy',
+    'Prediction accuracy score',
+    ['location']
+)
 
-# Restart service
-docker-compose restart grafana
-
-# View logs
-docker-compose logs -f grafana
-
-# Rebuild images
-docker-compose build --no-cache
-
-# Check status
-docker-compose ps
+# Use in endpoint
+@app.get("/prediction")
+def get_prediction(location: str = Query(None)):
+    prediction = weather_predictor.get_prediction(location)
+    accuracy = calculate_accuracy(prediction)
+    prediction_accuracy.labels(location=location).set(accuracy)
+    return prediction
 ```
 
-### Testing
+Then restart: `docker-compose restart weather-service`
 
-```bash
-# Health check
-curl http://localhost:8000/health
+### Adding New Dashboard Panels
 
-# Generate data
-curl http://localhost:8000/prediction
+Edit `grafana/provisioning/dashboards/weather-dashboard.json`:
 
-# Specific location
-curl "http://localhost:8000/prediction?location=Tokyo"
-
-# View metrics
-curl http://localhost:8000/metrics
-
-# Available locations
-curl http://localhost:8000/locations
+```json
+{
+  "id": 7,
+  "title": "Wind Speed Analysis",
+  "type": "timeseries",
+  "gridPos": { "h": 8, "w": 12, "x": 0, "y": 32 },
+  "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+  "targets": [
+    {
+      "expr": "weather_wind_speed_kmh",
+      "legendFormat": "{{location}}",
+      "refId": "A"
+    }
+  ],
+  "fieldConfig": {
+    "defaults": { "unit": "km/h", "custom": {} },
+    "overrides": []
+  }
+}
 ```
 
-### Dashboard Management
+Restart Grafana: `docker-compose restart grafana`
 
-```bash
-# List dashboards
-python grafana/manage_dashboards.py
+### Changing Scrape Interval
 
-# Create new dashboard (via API)
-curl -X POST http://localhost:3000/api/dashboards/db \
-  -H "Content-Type: application/json" \
-  -u admin:admin \
-  -d @dashboard.json
+Edit `prometheus/prometheus.yml`:
+
+```yaml
+global:
+  scrape_interval: 10s # Changed from 15s
+  evaluation_interval: 10s
 ```
 
-### Prometheus Queries
+Restart: `docker-compose restart prometheus`
 
-```bash
-# Query via API
-curl 'http://localhost:9090/api/v1/query?query=weather_temperature_celsius'
+### Adjusting Log Retention
 
-# Query targets
-curl http://localhost:9090/api/v1/targets
+Edit `loki/loki-config.yml`:
 
-# Query range
-curl 'http://localhost:9090/api/v1/query_range?query=weather_predictions_total&step=1h'
+```yaml
+limits_config:
+  retention_period: 48h # Keep logs for 48 hours
+```
+
+### Enabling Trace Sampling
+
+Edit `weather_service/main.py`:
+
+```python
+from opentelemetry.sdk.trace.export import TraceExportResult
+from opentelemetry.sdk.trace.sampling import TraceIdRatioBased
+
+# Sample 10% of traces
+sampler = TraceIdRatioBased(0.1)
+trace.set_tracer_provider(TracerProvider(resource=resource, sampler=sampler))
 ```
 
 ---
 
-## Resources
+## 📚 Resources
 
 ### Official Documentation
 
-- [Grafana Documentation](https://grafana.com/docs/)
-- [Prometheus Documentation](https://prometheus.io/docs/)
-- [FastAPI Documentation](https://fastapi.tiangolo.com/)
-- [Prometheus Python Client](https://github.com/prometheus/client_python)
+- [Grafana Docs](https://grafana.com/docs/)
+- [Prometheus Docs](https://prometheus.io/docs/)
+- [Loki Docs](https://grafana.com/docs/loki/)
+- [Tempo Docs](https://grafana.com/docs/tempo/)
+- [Alloy Docs](https://grafana.com/docs/alloy/)
+- [OpenTelemetry Docs](https://opentelemetry.io/docs/)
+- [FastAPI Docs](https://fastapi.tiangolo.com/)
 
 ### API References
 
 - [Grafana HTTP API](https://grafana.com/docs/grafana/latest/developers/http_api/)
 - [Prometheus Query API](https://prometheus.io/docs/prometheus/latest/querying/api/)
-- [PromQL Documentation](https://prometheus.io/docs/prometheus/latest/querying/basics/)
+- [Tempo Search API](https://grafana.com/docs/tempo/latest/api_docs/)
 
 ### Learning Resources
 
-- [Understanding Prometheus Metrics](https://prometheus.io/docs/concepts/metric_types/)
-- [Grafana Dashboard Best Practices](https://grafana.com/docs/grafana/latest/dashboards/build-dashboards/manage-dashboards/)
-- [FastAPI with Prometheus](https://github.com/trallnag/prometheus-fastapi-instrumentator)
+- [Prometheus Metric Types](https://prometheus.io/docs/concepts/metric_types/)
+- [PromQL Documentation](https://prometheus.io/docs/prometheus/latest/querying/basics/)
+- [LogQL Documentation](https://grafana.com/docs/loki/latest/logql/)
+- [TraceQL Documentation](https://grafana.com/docs/tempo/latest/traceql/)
 
 ---
 
-## Support & Feedback
+## ✅ Verification Checklist
 
-For issues or questions:
+**System Running**:
 
-1. Check the [Troubleshooting](#troubleshooting) section
-2. Review the [Architecture](#architecture) to understand the stack
-3. Examine logs: `docker-compose logs <service>`
-4. Test endpoints manually with `curl`
+- [ ] All 7 containers running: `docker-compose ps`
+- [ ] Log files present: `ls logs/`
+- [ ] Grafana accessible: http://localhost:3000
+
+**Data Collection**:
+
+- [ ] Generated test data: `curl http://localhost:8001/recommendations?location=Test`
+- [ ] Logs appearing: Check `logs/*.log`
+- [ ] Traces in Tempo: `curl -s http://localhost:3200/api/search | jq`
+- [ ] Metrics in Prometheus: http://localhost:9090/graph
+
+**Dashboard Display**:
+
+- [ ] Metrics visible in API Request Rate panel
+- [ ] Logs visible in Service Logs panel
+- [ ] Traces visible in Distributed Traces panel
+- [ ] Latency calculated in Service Latency panel
 
 ---
 
-**Last Updated**: 15 January 2026
+## 🎯 Quick Command Reference
 
-**Stack Status**: ✅ Ready for use
+```bash
+# Stack Control
+docker-compose up -d                 # Start
+docker-compose down                  # Stop
+docker-compose logs -f               # View logs
+docker-compose restart <service>     # Restart
 
-**Next Steps**:
+# Data Generation
+curl http://localhost:8001/recommendations?location=Test
 
-1. Visit http://localhost:3000 and log in (admin/admin)
-2. View the Weather Service Monitoring dashboard
-3. Generate test data with curl commands
-4. Explore PromQL queries in Prometheus UI
-5. Customize dashboard and metrics as needed
+# Verification
+wc -l logs/*.log                     # Count logs
+curl http://localhost:3200/api/search  # Check traces
+curl http://localhost:3100/ready     # Loki health
+
+# Grafana
+http://localhost:3000                # Web UI
+admin/admin                          # Credentials
+python grafana/manage_dashboards.py  # API client
+```
+
+---
+
+## 📝 System Status
+
+**Last Updated**: January 15, 2026
+
+**System Status**: ✅ **FULLY OPERATIONAL**
+
+**Pipelines**:
+
+- ✅ Metrics: Weather service → Prometheus → Grafana
+- ✅ Logs: Services → Shared volume → Alloy → Loki → Grafana
+- ✅ Traces: Services (OTLP) → Alloy → Tempo → Grafana
+
+**All 7 Services Running**:
+
+- ✅ weather-service (8000)
+- ✅ recommendations-service (8001)
+- ✅ prometheus (9090)
+- ✅ grafana (3000)
+- ✅ loki (3100)
+- ✅ tempo (3200, 4317)
+- ✅ alloy (12345)
+
+---
+
+## 🚀 Next Steps
+
+1. **Explore Dashboard**: Visit http://localhost:3000/d/cfa87vmjw1ou8c
+2. **Generate Data**: Run test requests to populate metrics, logs, and traces
+3. **Query Data**: Use PromQL in Prometheus UI for metric queries
+4. **Add Alerts**: Configure Prometheus alerting rules
+5. **Customize**: Add metrics, modify panels, adjust retention policies
+
+---
+
+**For Issues or Questions**: Check the Troubleshooting section or review service logs with `docker-compose logs <service>`.

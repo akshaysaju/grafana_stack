@@ -80,11 +80,11 @@ class GrafanaClient:
 
 
 def create_simple_dashboard() -> Dict[str, Any]:
-    """Create a simple dashboard configuration"""
+    """Create a comprehensive dashboard with metrics, logs, and traces"""
     return {
         "dashboard": {
             "title": "Weather API Health Check",
-            "tags": ["weather", "health"],
+            "tags": ["weather", "health", "traces", "logs", "metrics"],
             "timezone": "browser",
             "panels": [
                 {
@@ -92,11 +92,16 @@ def create_simple_dashboard() -> Dict[str, Any]:
                     "title": "API Request Rate",
                     "type": "timeseries",
                     "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+                    "datasource": {"type": "prometheus", "uid": "PBFA97CFB590B2093"},
                     "targets": [
                         {
                             "expr": "rate(api_requests_total[1m])",
                             "legendFormat": "{{endpoint}}",
                             "refId": "A",
+                            "datasource": {
+                                "type": "prometheus",
+                                "uid": "PBFA97CFB590B2093",
+                            },
                         }
                     ],
                     "fieldConfig": {"defaults": {"custom": {}}, "overrides": []},
@@ -106,15 +111,197 @@ def create_simple_dashboard() -> Dict[str, Any]:
                     "title": "Current Temperature",
                     "type": "gauge",
                     "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
+                    "datasource": {"type": "prometheus", "uid": "PBFA97CFB590B2093"},
                     "targets": [
                         {
                             "expr": "weather_temperature_celsius",
                             "legendFormat": "{{location}}",
                             "refId": "A",
+                            "datasource": {
+                                "type": "prometheus",
+                                "uid": "PBFA97CFB590B2093",
+                            },
                         }
                     ],
                     "fieldConfig": {
-                        "defaults": {"unit": "°C", "min": -50, "max": 50, "custom": {}},
+                        "defaults": {
+                            "unit": "celsius",
+                            "min": -50,
+                            "max": 50,
+                            "custom": {},
+                        },
+                        "overrides": [],
+                    },
+                },
+                {
+                    "id": 5,
+                    "title": "Weather Conditions Distribution",
+                    "type": "piechart",
+                    "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
+                    "datasource": {"type": "prometheus", "uid": "PBFA97CFB590B2093"},
+                    "targets": [
+                        {
+                            "expr": "sum by (condition) (weather_predictions_total)",
+                            "legendFormat": "{{condition}}",
+                            "refId": "A",
+                            "datasource": {
+                                "type": "prometheus",
+                                "uid": "PBFA97CFB590B2093",
+                            },
+                        }
+                    ],
+                    "fieldConfig": {
+                        "defaults": {
+                            "color": {"mode": "palette-classic"},
+                            "custom": {},
+                        },
+                        "overrides": [],
+                    },
+                    "options": {
+                        "legend": {"displayMode": "list", "placement": "right"},
+                        "pieType": "donut",
+                        "tooltip": {"mode": "single"},
+                    },
+                },
+                {
+                    "id": 6,
+                    "title": "Service Logs",
+                    "type": "logs",
+                    "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
+                    "datasource": {"type": "loki", "uid": "P8E80F9AEF21F6940"},
+                    "targets": [
+                        {
+                            "refId": "A",
+                            "datasource": {"type": "loki", "uid": "P8E80F9AEF21F6940"},
+                            "expr": '{job=~"weather-service|recommendations-service"}',
+                            "editorMode": "code",
+                            "queryType": "range",
+                        }
+                    ],
+                    "fieldConfig": {"defaults": {"custom": {}}, "overrides": []},
+                    "options": {
+                        "showLabels": True,
+                        "showTime": True,
+                        "wrapLogMessage": False,
+                        "prettifyLogMessage": False,
+                        "enableLogDetails": True,
+                        "dedupStrategy": "none",
+                        "sortOrder": "Descending",
+                    },
+                },
+                {
+                    "id": 3,
+                    "title": "Distributed Traces",
+                    "type": "table",
+                    "gridPos": {"h": 10, "w": 24, "x": 0, "y": 16},
+                    "datasource": {"type": "tempo", "uid": "P214B5B846CF3925F"},
+                    "targets": [
+                        {
+                            "refId": "A",
+                            "datasource": {"type": "tempo", "uid": "P214B5B846CF3925F"},
+                            "queryType": "traceqlSearch",
+                            "limit": 20,
+                            "query": "{}",
+                        }
+                    ],
+                    "fieldConfig": {
+                        "defaults": {
+                            "custom": {
+                                "align": "auto",
+                                "cellOptions": {"type": "auto"},
+                                "inspect": False,
+                            }
+                        },
+                        "overrides": [
+                            {
+                                "matcher": {"id": "byName", "options": "Trace ID"},
+                                "properties": [
+                                    {
+                                        "id": "links",
+                                        "value": [
+                                            {
+                                                "title": "View Trace",
+                                                "url": '/explore?left={"datasource":"P214B5B846CF3925F","queries":[{"query":"${__value.raw}","queryType":"traceql"}],"range":{"from":"now-1h","to":"now"}}',
+                                            }
+                                        ],
+                                    }
+                                ],
+                            }
+                        ],
+                    },
+                    "options": {
+                        "showHeader": True,
+                        "cellHeight": "sm",
+                        "footer": {
+                            "show": False,
+                            "reducer": ["sum"],
+                            "countRows": False,
+                            "fields": "",
+                        },
+                    },
+                    "transformations": [
+                        {
+                            "id": "organize",
+                            "options": {
+                                "excludeByName": {},
+                                "indexByName": {},
+                                "renameByName": {
+                                    "traceID": "Trace ID",
+                                    "rootServiceName": "Service",
+                                    "rootTraceName": "Operation",
+                                    "startTimeUnixNano": "Start Time",
+                                },
+                            },
+                        }
+                    ],
+                },
+                {
+                    "id": 4,
+                    "title": "Service Latency (from traces)",
+                    "type": "stat",
+                    "gridPos": {"h": 8, "w": 12, "x": 0, "y": 26},
+                    "datasource": {"type": "tempo", "uid": "P214B5B846CF3925F"},
+                    "targets": [
+                        {
+                            "refId": "A",
+                            "datasource": {"type": "tempo", "uid": "P214B5B846CF3925F"},
+                            "queryType": "traceqlSearch",
+                            "query": '{rootServiceName="weather-service"} || {rootServiceName="recommendations-service"}',
+                            "limit": 100,
+                        }
+                    ],
+                    "transformations": [
+                        {
+                            "id": "organize",
+                            "options": {
+                                "excludeByName": {},
+                                "indexByName": {},
+                                "renameByName": {
+                                    "rootServiceName": "Service",
+                                    "durationMs": "Latency (ms)",
+                                },
+                            },
+                        },
+                        {
+                            "id": "calculateField",
+                            "options": {
+                                "mode": "reduceRow",
+                                "reduce": {"reducer": "mean"},
+                                "fieldName": "Avg Latency",
+                            },
+                        },
+                    ],
+                    "fieldConfig": {
+                        "defaults": {
+                            "unit": "ms",
+                            "custom": {
+                                "hideFrom": {
+                                    "tooltip": False,
+                                    "viz": False,
+                                    "legend": False,
+                                }
+                            },
+                        },
                         "overrides": [],
                     },
                 },
@@ -161,10 +348,17 @@ def main():
     try:
         dashboard_config = create_simple_dashboard()
         result = client.create_dashboard(dashboard_config["dashboard"])
-        print(f"  ✓ Dashboard created: {result['title']}")
-        print(f"    URL: http://localhost:3000/d/{result['uid']}")
+        if "id" in result and "uid" in result:
+            print(f"  ✓ Dashboard created: {dashboard_config['dashboard']['title']}")
+            print(f"    URL: http://localhost:3000/d/{result['uid']}")
+        else:
+            print(f"  ⚠ Dashboard operation completed")
+            print(f"    Response: {result}")
     except Exception as e:
         print(f"  ✗ Failed to create dashboard: {e}")
+        import traceback
+
+        traceback.print_exc()
 
     print("\n" + "=" * 60)
     print("\nProvisioning Methods:")
