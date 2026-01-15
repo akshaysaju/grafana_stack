@@ -1,0 +1,71 @@
+// Alloy Configuration for Grafana Stack POC
+// Collects logs from files and sends to Loki
+// Ready to be extended with metrics and traces
+
+// ===========================================================================
+// LOKI OUTPUT
+// ===========================================================================
+
+// Loki Write Endpoint - forward logs to Loki
+loki.write "default" {
+  endpoint {
+    url = "http://loki:3100/loki/api/v1/push"
+  }
+  external_labels = {
+    "cluster" = "grafana-stack",
+    "env"     = "poc",
+  }
+}
+
+// ===========================================================================
+// LOGS SECTION - File-based Log Collection
+// ===========================================================================
+
+// File logs source - tails the weather-service log file
+loki.source.file "weather_service" {
+  targets = [
+    {
+      __path__ = "/var/log/weather-service.log",
+      job      = "weather-service",
+      service  = "weather-service",
+    },
+  ]
+  
+  forward_to = [loki.write.default.receiver]
+}
+
+// ===========================================================================
+// FUTURE: METRICS SECTION (Ready for Extension)
+// ===========================================================================
+// Uncomment and extend when adding Prometheus metrics forwarding
+
+// prometheus.remote_write "default" {
+//   endpoint {
+//     url = "http://prometheus:9090/api/v1/write"
+//   }
+// }
+
+// ===========================================================================
+// FUTURE: TRACES SECTION (Ready for Tempo Integration)
+// ===========================================================================
+// Uncomment and extend when adding distributed tracing
+
+// otelcol.receiver.otlp "default" {
+//   grpc {}
+// }
+// 
+// otelcol.exporter.otlp "default" {
+//   client {
+//     endpoint = "tempo:4317"
+//   }
+// }
+// 
+// otelcol.processor.batch "default" {
+//   send_batch_size = 100
+// }
+// 
+// otelcol.pipeline.traces "default" {
+//   receivers  = [otelcol.receiver.otlp.default]
+//   processors = [otelcol.processor.batch.default]
+//   exporters  = [otelcol.exporter.otlp.default]
+// }

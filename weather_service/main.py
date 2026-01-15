@@ -8,7 +8,19 @@ from prometheus_client import (
 )
 from fastapi.responses import Response
 import time
+import logging
 from weather_predictor import WeatherPredictor
+
+# Configure logging to both stdout and file
+logging.basicConfig(
+    level=logging.INFO,
+    format='{"timestamp": "%(asctime)s", "level": "%(levelname)s", "message": "%(message)s"}',
+    handlers=[
+        logging.StreamHandler(),  # stdout
+        logging.FileHandler("/var/log/weather-service.log"),  # file
+    ],
+)
+logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Weather Prediction Service", version="1.0.0")
 weather_predictor = WeatherPredictor()
@@ -127,8 +139,16 @@ def get_prediction(location: str = Query(None)):
         latency = time.time() - start_time
         prediction_latency.observe(latency)
 
+        # Log the prediction
+        logger.info(
+            f"Prediction generated: location={pred_location} "
+            f"temperature={prediction['temperature_celsius']:.2f}°C "
+            f"condition={pred_condition} latency={latency * 1000:.2f}ms"
+        )
+
         return prediction
     except Exception as e:
+        logger.error(f"Error generating prediction: {str(e)}")
         return {"error": str(e)}
 
 
