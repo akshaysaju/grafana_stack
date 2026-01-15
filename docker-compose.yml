@@ -1,0 +1,59 @@
+version: '3.8'
+
+services:
+  weather-service:
+    build:
+      context: ./weather_service
+      dockerfile: Dockerfile
+      network: host
+    container_name: weather-service
+    ports:
+      - "8000:8000"
+    networks:
+      - grafana-stack
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  prometheus:
+    image: infyartifactory.jfrog.io/docker/prom/prometheus:v3.9.1
+    container_name: prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+    networks:
+      - grafana-stack
+    depends_on:
+      - weather-service
+
+  grafana:
+    image: infyartifactory.jfrog.io/docker/grafana/grafana:latest
+    container_name: grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_SECURITY_ADMIN_USER=admin
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning/datasources:/etc/grafana/provisioning/datasources
+      - ./grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards
+    networks:
+      - grafana-stack
+    depends_on:
+      - prometheus
+
+volumes:
+  prometheus_data:
+  grafana_data:
+
+networks:
+  grafana-stack:
+    driver: bridge
