@@ -2,7 +2,7 @@
 
 A production-ready proof-of-concept demonstrating **distributed observability** with metrics, logs, and traces collected from microservices using FastAPI, Prometheus, Loki, Tempo, and Grafana. All services are fully integrated and automatically provisioned.
 
-**Status**: ✅ **READY TO USE** - All 7 services running, complete data flow verified, dashboard active with metrics, logs, and traces.
+**Status**: ✅ **READY TO USE** - All 8 services running with alerting, complete data flow verified, dashboard active with metrics, logs, and traces.
 
 ---
 
@@ -12,12 +12,13 @@ A production-ready proof-of-concept demonstrating **distributed observability** 
 2. [System Architecture](#system-architecture)
 3. [Project Structure](#project-structure)
 4. [Services & Endpoints](#services--endpoints)
-5. [Data Pipelines](#data-pipelines)
-6. [Dashboard & Visualization](#dashboard--visualization)
-7. [Grafana API & Programmatic Access](#grafana-api--programmatic-access)
-8. [Common Operations](#common-operations)
-9. [Troubleshooting](#troubleshooting)
-10. [Advanced Customization](#advanced-customization)
+5. [Alerting System](#alerting-system)
+6. [Data Pipelines](#data-pipelines)
+7. [Dashboard & Visualization](#dashboard--visualization)
+8. [Grafana API & Programmatic Access](#grafana-api--programmatic-access)
+9. [Common Operations](#common-operations)
+10. [Troubleshooting](#troubleshooting)
+11. [Advanced Customization](#advanced-customization)
 
 ---
 
@@ -27,7 +28,7 @@ A production-ready proof-of-concept demonstrating **distributed observability** 
 
 - Docker and Docker Compose installed
 - ~2 GB free disk space
-- Ports available: 3000, 3100, 3200, 4317, 8000, 8001, 9090, 12345
+- Ports available: 3000, 3100, 3200, 4317, 8000, 8001, 9090, 9093, 12345
 
 ### Start the Stack
 
@@ -42,11 +43,12 @@ docker-compose up -d
 docker-compose ps
 ```
 
-All 7 services should show "Up" status:
+All 8 services should show "Up" status:
 
 - weather-service (8000)
 - recommendations-service (8001)
 - prometheus (9090)
+- alertmanager (9093)
 - grafana (3000)
 - loki (3100)
 - tempo (3200 HTTP, 4317 gRPC)
@@ -58,6 +60,8 @@ All 7 services should show "Up" status:
 | ----------------------- | -------------------------------------- | ------------- |
 | **Grafana Dashboard**   | http://localhost:3000/d/cfa87vmjw1ou8c | admin / admin |
 | **Prometheus UI**       | http://localhost:9090                  | None          |
+| **Prometheus Alerts**   | http://localhost:9090/alerts           | None          |
+| **Alertmanager UI**     | http://localhost:9093                  | None          |
 | **Loki Logs**           | http://localhost:3100                  | None          |
 | **Tempo Traces**        | http://localhost:3200                  | None          |
 | **Weather API**         | http://localhost:8000                  | None          |
@@ -296,6 +300,72 @@ curl -s 'http://localhost:3200/api/search' | python3 -m json.tool
 
 ```bash
 curl -s 'http://localhost:3200/api/search?limit=20'
+```
+
+### Alertmanager (Port 9093)
+
+**Access UI**: http://localhost:9093
+
+**View Active Alerts**
+
+```bash
+curl -s 'http://localhost:9093/api/v2/alerts' | python3 -m json.tool
+```
+
+**Check Alertmanager Status**
+
+```bash
+curl -s 'http://localhost:9093/api/v2/status' | python3 -m json.tool
+```
+
+---
+
+## 🚨 Alerting System
+
+### Overview
+
+Prometheus alerting with Alertmanager monitors all 8 services and sends notifications when issues are detected.
+
+**Alert Flow**: Prometheus → Evaluates Rules → Alertmanager → Routes → Webhook Notification
+
+### Alert Rules
+
+**ServiceDown** - Fires when any service is unreachable for >1 minute
+- **Severity**: Critical
+- **Condition**: `up == 0`
+- **Notification**: Repeats every 1 hour if still firing
+
+### Monitored Services
+
+All 8 services are monitored:
+- Application: weather-service, recommendations-service
+- Infrastructure: prometheus, alertmanager, loki, tempo, grafana, alloy
+
+### Access Alerts
+
+| Interface | URL | Purpose |
+|-----------|-----|---------|
+| **Prometheus Alerts** | http://localhost:9090/alerts | View alert states (inactive/pending/firing) |
+| **Alertmanager UI** | http://localhost:9093 | View active alerts and silences |
+| **Grafana Explore** | http://localhost:3000/explore | Query `ALERTS` metric |
+
+### Configuration Files
+
+- `prometheus/alert_rules.yml` - Alert definitions
+- `alertmanager/alertmanager.yml` - Notification routing (webhook)
+- `prometheus/prometheus.yml` - Alerting config + scrape targets
+
+### Testing Alerts
+
+```bash
+# Stop a service to trigger ServiceDown alert
+docker stop tempo
+
+# Wait 60 seconds, then check alerts
+curl -s http://localhost:9090/api/v1/alerts | grep -A 5 ServiceDown
+
+# Restart service
+docker start tempo
 ```
 
 ---
