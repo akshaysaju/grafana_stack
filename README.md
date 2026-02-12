@@ -1060,7 +1060,7 @@ Edit `prometheus/prometheus.yml`:
 
 ```yaml
 global:
-  scrape_interval: 10s # Changed from 15s
+  scrape_interval: 10s
   evaluation_interval: 10s
 ```
 

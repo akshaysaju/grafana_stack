@@ -62,6 +62,7 @@ services:
       - grafana-stack
     depends_on:
       - weather-service
+      - recommendations-service
       - alertmanager
 
   alertmanager:

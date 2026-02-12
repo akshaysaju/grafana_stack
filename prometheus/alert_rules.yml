@@ -3,7 +3,7 @@
 groups:
   # Service Health Alerts
   - name: service_health
-    interval: 15s
+    interval: 5s
     rules:
       # Alert when any service is down
       - alert: ServiceDown
