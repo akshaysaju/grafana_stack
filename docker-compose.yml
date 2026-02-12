@@ -83,6 +83,18 @@ services:
       timeout: 5s
       retries: 3
 
+  alert-notifier:
+    build:
+      context: ./alert_notifier
+      dockerfile: Dockerfile
+    container_name: alert-notifier
+    ports:
+      - "8002:9000"
+    networks:
+      - grafana-stack
+    depends_on:
+      - alertmanager
+
   grafana:
     image: infyartifactory.jfrog.io/docker/grafana/grafana:latest
     container_name: grafana

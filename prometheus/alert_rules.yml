@@ -8,9 +8,9 @@ groups:
       # Alert when any service is down
       - alert: ServiceDown
         expr: up == 0
-        for: 1m
+        for: 10s
         labels:
           severity: critical
         annotations:
           summary: "Service {{ $labels.job }} is down"
-          description: "{{ $labels.job }} has been unreachable for more than 1 minute. Instance: {{ $labels.instance }}"
+          description: "{{ $labels.job }} has been unreachable for more than 10 seconds. Instance: {{ $labels.instance }}"
