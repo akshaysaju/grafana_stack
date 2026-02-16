@@ -47,7 +47,7 @@ services:
       retries: 5
 
   prometheus:
-    image: infyartifactory.jfrog.io/docker/prom/prometheus:v3.9.1
+    image: prom/prometheus:v2.48.0
     container_name: prometheus
     ports:
       - "9090:9090"
@@ -84,7 +84,7 @@ services:
       retries: 3
 
   grafana:
-    image: infyartifactory.jfrog.io/docker/grafana/grafana:latest
+    image: grafana/grafana:latest
     container_name: grafana
     ports:
       - "3000:3000"
@@ -95,6 +95,7 @@ services:
       - grafana_data:/var/lib/grafana
       - ./grafana/provisioning/datasources:/etc/grafana/provisioning/datasources
       - ./grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards
+      - ./grafana/provisioning/alerting:/etc/grafana/provisioning/alerting
     networks:
       - grafana-stack
     depends_on:
@@ -102,12 +103,13 @@ services:
       - loki
 
   loki:
-    image: infyartifactory.jfrog.io/docker/grafana/loki:latest
+    image: grafana/loki:latest
     container_name: loki
     ports:
       - "3100:3100"
     volumes:
       - ./loki/loki-config.yml:/etc/loki/local-config.yaml
+      - ./loki/rules:/loki/rules
       - loki_data:/loki
     command: -config.file=/etc/loki/local-config.yaml
     networks:
@@ -119,7 +121,7 @@ services:
       retries: 5
 
   tempo:
-    image: infyartifactory.jfrog.io/docker/grafana/tempo:latest
+    image: grafana/tempo:latest
     container_name: tempo
     ports:
       - "3200:3200"
@@ -137,7 +139,7 @@ services:
       retries: 5
 
   alloy:
-    image: infyartifactory.jfrog.io/docker/grafana/alloy:latest
+    image: grafana/alloy:latest
     container_name: alloy
     ports:
       - "12345:12345"

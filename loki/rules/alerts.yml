@@ -1,0 +1,13 @@
+groups:
+  - name: error_detection
+    interval: 1m
+    rules:
+      - alert: HighErrorRate
+        expr: |
+          sum(rate({job=~"weather-service|recommendations-service"} |= "ERROR" [5m])) > 0.1
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High error rate detected in logs"
+          description: "More than 0.1 ERROR logs per second detected in {{ $labels.job }}"
