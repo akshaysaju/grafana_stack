@@ -330,7 +330,8 @@ Prometheus alerting with Alertmanager monitors all 8 services and sends notifica
 
 ### Alert Rules
 
-**ServiceDown** - Fires when any service is unreachable for >1 minute
+**ServiceDown** - Fires when any service is unreachable for >10 seconds
+
 - **Severity**: Critical
 - **Condition**: `up == 0`
 - **Notification**: Repeats every 1 hour if still firing
@@ -338,16 +339,17 @@ Prometheus alerting with Alertmanager monitors all 8 services and sends notifica
 ### Monitored Services
 
 All 8 services are monitored:
+
 - Application: weather-service, recommendations-service
 - Infrastructure: prometheus, alertmanager, loki, tempo, grafana, alloy
 
 ### Access Alerts
 
-| Interface | URL | Purpose |
-|-----------|-----|---------|
-| **Prometheus Alerts** | http://localhost:9090/alerts | View alert states (inactive/pending/firing) |
-| **Alertmanager UI** | http://localhost:9093 | View active alerts and silences |
-| **Grafana Explore** | http://localhost:3000/explore | Query `ALERTS` metric |
+| Interface             | URL                           | Purpose                                     |
+| --------------------- | ----------------------------- | ------------------------------------------- |
+| **Prometheus Alerts** | http://localhost:9090/alerts  | View alert states (inactive/pending/firing) |
+| **Alertmanager UI**   | http://localhost:9093         | View active alerts and silences             |
+| **Grafana Explore**   | http://localhost:3000/explore | Query `ALERTS` metric                       |
 
 ### Configuration Files
 
@@ -1058,7 +1060,7 @@ Edit `prometheus/prometheus.yml`:
 
 ```yaml
 global:
-  scrape_interval: 10s # Changed from 15s
+  scrape_interval: 10s
   evaluation_interval: 10s
 ```
 

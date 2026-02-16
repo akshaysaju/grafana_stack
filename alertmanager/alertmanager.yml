@@ -6,29 +6,29 @@ global:
 
 # Route configuration - defines how alerts are routed to receivers
 route:
-  receiver: 'webhook-default'
-  group_by: ['alertname', 'job', 'severity']
-  group_wait: 10s        # Wait 10s to batch similar alerts
-  group_interval: 5m     # Wait 5m before sending next batch of grouped alerts
-  repeat_interval: 1h    # Resend critical alerts every 1 hour if still firing
-  
+  receiver: "webhook-default"
+  group_by: ["alertname", "job", "severity"]
+  group_wait: 10s # Wait 10s to batch similar alerts
+  group_interval: 5m # Wait 5m before sending next batch of grouped alerts
+  repeat_interval: 1h # Resend critical alerts every 1 hour if still firing
+
   # Route critical alerts to webhook
   routes:
     - match:
         severity: critical
-      receiver: 'webhook-critical'
+      receiver: "webhook-critical"
       repeat_interval: 1h
 
 # Receivers - define notification destinations
 receivers:
   # Default receiver
-  - name: 'webhook-default'
+  - name: "webhook-default"
     webhook_configs:
-      - url: 'https://webhook.site/c37d45ea-094c-4871-a94b-f65b04a04201'
+      - url: "http://alert-notifier:9000/alerts"
         send_resolved: true
 
   # Critical alerts receiver
-  - name: 'webhook-critical'
+  - name: "webhook-critical"
     webhook_configs:
-      - url: 'https://webhook.site/c37d45ea-094c-4871-a94b-f65b04a04201'
+      - url: "http://alert-notifier:9000/alerts"
         send_resolved: true
