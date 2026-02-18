@@ -1,11 +1,10 @@
-# Prometheus Alert Rules
+# Prometheus Alert Rules - Weather/Recommendations POC
 
 groups:
-  # Service Health Alerts
+  # ── 1. Infrastructure Health ─────────────────────────────────────────────
   - name: service_health
     interval: 5s
     rules:
-      # Alert when any service is down
       - alert: ServiceDown
         expr: up == 0
         for: 10s
@@ -13,4 +12,53 @@ groups:
           severity: critical
         annotations:
           summary: "Service {{ $labels.job }} is down"
-          description: "{{ $labels.job }} has been unreachable for more than 10 seconds. Instance: {{ $labels.instance }}"
+          description: "{{ $labels.job }} has been unreachable for more than 10 seconds."
+
+  # ── 2. Weather Service Performance ───────────────────────────────────────
+  - name: weather_service
+    interval: 15s
+    rules:
+      # Fires when 95th percentile prediction latency exceeds 500ms
+      - alert: HighPredictionLatency
+        expr: |
+          histogram_quantile(0.95,
+            rate(weather_prediction_latency_seconds_bucket[2m])
+          ) > 0.5
+        for: 30s
+        labels:
+          severity: warning
+          service: weather-service
+        annotations:
+          summary: "Weather service predictions are slow"
+          description: "95th percentile latency is {{ $value | humanizeDuration }} (threshold: 500ms)"
+
+      # Fires when no predictions have been made in the last 5 minutes
+      - alert: NoTrafficDetected
+        expr: |
+          rate(weather_predictions_total[5m]) == 0
+        for: 5m
+        labels:
+          severity: warning
+          service: weather-service
+        annotations:
+          summary: "No weather predictions being made"
+          description: "Zero predictions in the last 5 minutes - service may be idle or broken"
+
+  # ── 3. Recommendations Service Health ────────────────────────────────────
+  - name: recommendations_service
+    interval: 15s
+    rules:
+      # Fires when >10% of calls to weather-service are failing
+      - alert: WeatherServiceCallErrors
+        expr: |
+          rate(weather_service_calls_total{status="error"}[2m])
+          /
+          (rate(weather_service_calls_total[2m]) + 0.001)
+          > 0.1
+        for: 30s
+        labels:
+          severity: critical
+          service: recommendations-service
+        annotations:
+          summary: "Recommendations service failing to reach weather service"
+          description: "{{ $value | humanizePercentage }} of weather service calls are failing"

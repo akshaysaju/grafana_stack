@@ -9,7 +9,7 @@ common:
     kvstore:
       store: inmemory
   replication_factor: 1
-  path_prefix: /loki
+  path_prefix: /loki/data
 
 schema_config:
   configs:
@@ -23,13 +23,18 @@ schema_config:
 
 storage_config:
   filesystem:
-    directory: /loki/chunks
+    directory: /loki/data/chunks
 
 ruler:
   alertmanager_url: http://alertmanager:9093
   enable_api: true
   enable_alertmanager_v2: true
-  rule_path: /loki/rules
+  evaluation_interval: 30s
+  poll_interval: 30s
+  rule_path: /tmp/loki/rules-temp
+  ring:
+    kvstore:
+      store: inmemory
   storage:
     type: local
     local:

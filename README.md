@@ -324,51 +324,119 @@ curl -s 'http://localhost:9093/api/v2/status' | python3 -m json.tool
 
 ### Overview
 
-Prometheus alerting with Alertmanager monitors all 8 services and sends notifications when issues are detected.
+All three observability tools — **Prometheus**, **Loki**, and **Grafana** — send alerts to a single external **Alertmanager**, which routes them to configured destinations.
 
-**Alert Flow**: Prometheus → Evaluates Rules → Alertmanager → Routes → Webhook Notification
+**Alert Flow**:
+```
+Prometheus ──┐
+Loki Ruler ──┼──→ Alertmanager (9093) ──→ alert-notifier + webhook.site
+Grafana ─────┘
+```
+
+Each tool uses its **native alerting capability** — no plugins or custom code needed.
+
+---
+
+### How Each Source Works
+
+**Prometheus** evaluates PromQL rules on a schedule and POSTs to Alertmanager natively:
+```yaml
+# prometheus.yml
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ["alertmanager:9093"]
+```
+
+**Loki** has a built-in **Ruler** component that evaluates LogQL rules and sends to Alertmanager:
+```yaml
+# loki-config.yml
+ruler:
+  alertmanager_url: http://alertmanager:9093
+  storage:
+    type: local
+    local:
+      directory: /loki/rules   # rules in /loki/rules/fake/alerts.yml
+```
+
+**Grafana** uses its native "External Alertmanager" contact point — all Grafana alerts bypass its internal notifier and go directly to Alertmanager:
+```yaml
+# grafana/provisioning/alerting/alertmanager.yml
+contactPoints:
+  - name: alertmanager
+    receivers:
+      - type: prometheus-alertmanager
+        settings:
+          url: http://alertmanager:9093
+```
+
+---
 
 ### Alert Rules
 
-**ServiceDown** - Fires when any service is unreachable for >10 seconds
+#### Prometheus (`prometheus/alert_rules.yml`)
 
-- **Severity**: Critical
-- **Condition**: `up == 0`
-- **Notification**: Repeats every 1 hour if still firing
+| Alert | Condition | Severity |
+|-------|-----------|----------|
+| `ServiceDown` | Any service unreachable for 10s | critical |
+| `HighPredictionLatency` | P95 prediction latency > 500ms | warning |
+| `NoTrafficDetected` | Zero predictions in 5 min | warning |
+| `WeatherServiceCallErrors` | >10% of upstream calls failing | critical |
 
-### Monitored Services
+#### Loki (`loki/rules/fake/alerts.yml`)
 
-All 8 services are monitored:
+> **Note**: `fake` is Loki's default tenant name when `auth_enabled: false`.
 
-- Application: weather-service, recommendations-service
-- Infrastructure: prometheus, alertmanager, loki, tempo, grafana, alloy
+| Alert | Condition | Severity |
+|-------|-----------|----------|
+| `ErrorLogsDetected` | Any ERROR log line in last 2 min | warning |
+| `WeatherServiceCallFailed` | "Error calling weather service" in logs | critical |
 
-### Access Alerts
+#### Grafana (`grafana/provisioning/alerting/rules.yml`)
 
-| Interface             | URL                           | Purpose                                     |
-| --------------------- | ----------------------------- | ------------------------------------------- |
-| **Prometheus Alerts** | http://localhost:9090/alerts  | View alert states (inactive/pending/firing) |
-| **Alertmanager UI**   | http://localhost:9093         | View active alerts and silences             |
-| **Grafana Explore**   | http://localhost:3000/explore | Query `ALERTS` metric                       |
+| Alert | Condition | Severity |
+|-------|-----------|----------|
+| `HighRecommendationLatency` | P95 recommendation latency > 500ms | warning |
 
-### Configuration Files
+---
 
-- `prometheus/alert_rules.yml` - Alert definitions
-- `alertmanager/alertmanager.yml` - Notification routing (webhook)
-- `prometheus/prometheus.yml` - Alerting config + scrape targets
+### Alertmanager Routing (`alertmanager/alertmanager.yml`)
+
+- Default receiver: `webhook-default` → alert-notifier + webhook.site
+- Critical alerts: `webhook-critical` → same destinations, higher priority
+
+---
 
 ### Testing Alerts
 
 ```bash
-# Stop a service to trigger ServiceDown alert
-docker stop tempo
+# Trigger ServiceDown + WeatherServiceCallFailed + ErrorLogsDetected
+docker-compose stop weather-service
 
-# Wait 60 seconds, then check alerts
-curl -s http://localhost:9090/api/v1/alerts | grep -A 5 ServiceDown
+# Make failing calls to recommendations (generates error logs)
+for i in {1..5}; do curl -s http://localhost:8001/recommendations?location=Miami; sleep 1; done
 
-# Restart service
-docker start tempo
+# Check Prometheus alerts
+curl -s http://localhost:9090/api/v1/alerts | python3 -m json.tool | grep alertname
+
+# Check Loki alerts
+curl -s http://localhost:3100/prometheus/api/v1/alerts | python3 -m json.tool | grep alertname
+
+# Check alert-notifier received them
+docker logs alert-notifier | grep "ALERT"
+
+# Restore
+docker-compose start weather-service
 ```
+
+### Access Alerts
+
+| Interface | URL | Purpose |
+|-----------|-----|---------|
+| **Prometheus Alerts** | http://localhost:9090/alerts | Prometheus rule states |
+| **Alertmanager UI** | http://localhost:9093 | Active alerts + routing |
+| **Grafana Alert Rules** | http://localhost:3000/alerting/list | All rules from all sources |
+| **Alert Notifier** | `docker logs alert-notifier` | Delivered alert log |
 
 ---
 

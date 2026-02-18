@@ -1,0 +1,30 @@
+# Loki Alert Rules - Weather/Recommendations POC
+
+groups:
+  - name: log_alerts
+    interval: 30s
+    rules:
+      # Fires when any ERROR logs appear in either service
+      - alert: ErrorLogsDetected
+        expr: |
+          sum(count_over_time({job=~"weather-service|recommendations-service"} |= "ERROR" [2m])) > 0
+        for: 0s
+        labels:
+          severity: warning
+          source: loki
+        annotations:
+          summary: "ERROR logs detected in services"
+          description: "One or more ERROR log lines detected in weather-service or recommendations-service"
+
+      # Fires specifically when recommendations can't reach weather service
+      - alert: WeatherServiceCallFailed
+        expr: |
+          count_over_time({job="recommendations-service"} |= "Error calling weather service" [2m]) > 0
+        for: 0s
+        labels:
+          severity: critical
+          source: loki
+          service: recommendations-service
+        annotations:
+          summary: "Recommendations service cannot reach weather service"
+          description: "Log line 'Error calling weather service' detected - upstream dependency is failing"
