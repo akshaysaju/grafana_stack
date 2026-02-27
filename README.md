@@ -1,8 +1,8 @@
 # Grafana Observability Stack - Complete Documentation
 
-A production-ready proof-of-concept demonstrating **distributed observability** with metrics, logs, and traces collected from microservices using FastAPI, Prometheus, Loki, Tempo, and Grafana. All services are fully integrated and automatically provisioned.
+A production-ready proof-of-concept demonstrating **distributed observability** with metrics, logs, and traces collected from microservices using FastAPI, Prometheus, Loki, Tempo, and Grafana. All services are fully integrated, automatically provisioned, and run in **High Availability (HA) mode** with 2 replicas each.
 
-**Status**: ✅ **READY TO USE** - All 8 services running with alerting, complete data flow verified, dashboard active with metrics, logs, and traces.
+**Status**: ✅ **HA READY** - All 7 core services run with 2 replicas. Failover tested and verified — metrics, logs, traces, and alerts continue flowing when any single replica goes down. All images sourced from `infyartifactory.jfrog.io`.
 
 ---
 
@@ -10,15 +10,16 @@ A production-ready proof-of-concept demonstrating **distributed observability** 
 
 1. [Quick Start](#quick-start)
 2. [System Architecture](#system-architecture)
-3. [Project Structure](#project-structure)
-4. [Services & Endpoints](#services--endpoints)
-5. [Alerting System](#alerting-system)
-6. [Data Pipelines](#data-pipelines)
-7. [Dashboard & Visualization](#dashboard--visualization)
-8. [Grafana API & Programmatic Access](#grafana-api--programmatic-access)
-9. [Common Operations](#common-operations)
-10. [Troubleshooting](#troubleshooting)
-11. [Advanced Customization](#advanced-customization)
+3. [High Availability](#high-availability)
+4. [Project Structure](#project-structure)
+5. [Services & Endpoints](#services--endpoints)
+6. [Alerting System](#alerting-system)
+7. [Data Pipelines](#data-pipelines)
+8. [Dashboard & Visualization](#dashboard--visualization)
+9. [Grafana API & Programmatic Access](#grafana-api--programmatic-access)
+10. [Common Operations](#common-operations)
+11. [Troubleshooting](#troubleshooting)
+12. [Advanced Customization](#advanced-customization)
 
 ---
 
@@ -27,8 +28,9 @@ A production-ready proof-of-concept demonstrating **distributed observability** 
 ### Prerequisites
 
 - Docker and Docker Compose installed
-- ~2 GB free disk space
-- Ports available: 3000, 3100, 3200, 4317, 8000, 8001, 9090, 9093, 12345
+- ~4 GB free disk space (HA runs 2× replicas)
+- Access to `infyartifactory.jfrog.io` Docker registry
+- Ports available: 3000-3001, 3100-3101, 3200-3201, 4317, 8000-8001, 9009-9010, 9090-9091, 9093, 9095, 12345-12346
 
 ### Start the Stack
 
@@ -43,29 +45,31 @@ docker-compose up -d
 docker-compose ps
 ```
 
-All 8 services should show "Up" status:
+All 16 containers should show "Up" status (2 replicas per service):
 
-- weather-service (8000)
-- recommendations-service (8001)
-- prometheus (9090)
-- alertmanager (9093)
-- grafana (3000)
-- loki (3100)
-- tempo (3200 HTTP, 4317 gRPC)
-- alloy (12345)
+- weather-service (8000), recommendations-service (8001)
+- prometheus-1 (9090), prometheus-2 (9091)
+- alertmanager-1 (9093), alertmanager-2 (9095)
+- grafana-1 (3000), grafana-2 (3001)
+- loki-1 (3100), loki-2 (3101)
+- tempo-1 (3200), tempo-2 (3201)
+- mimir-1 (9009), mimir-2 (9010)
+- alloy-1 (12345), alloy-2 (12346)
+- minio (9000, console: 9001)
 
 ### Access Services
 
-| Service                 | URL                                    | Credentials   |
-| ----------------------- | -------------------------------------- | ------------- |
-| **Grafana Dashboard**   | http://localhost:3000/d/cfa87vmjw1ou8c | admin / admin |
-| **Prometheus UI**       | http://localhost:9090                  | None          |
-| **Prometheus Alerts**   | http://localhost:9090/alerts           | None          |
-| **Alertmanager UI**     | http://localhost:9093                  | None          |
-| **Loki Logs**           | http://localhost:3100                  | None          |
-| **Tempo Traces**        | http://localhost:3200                  | None          |
-| **Weather API**         | http://localhost:8000                  | None          |
-| **Recommendations API** | http://localhost:8001                  | None          |
+| Service | Primary | Replica | Credentials |
+|---|---|---|---|
+| **Grafana** | http://localhost:3000 | http://localhost:3001 | admin / admin |
+| **Prometheus** | http://localhost:9090 | http://localhost:9091 | None |
+| **Alertmanager** | http://localhost:9093 | http://localhost:9095 | None |
+| **Mimir** | http://localhost:9009 | http://localhost:9010 | None |
+| **Loki** | http://localhost:3100 | http://localhost:3101 | None |
+| **Tempo** | http://localhost:3200 | http://localhost:3201 | None |
+| **MinIO Console** | http://localhost:9001 | — | mimiradmin / mimirsecret |
+| **Weather API** | http://localhost:8000 | — | None |
+| **Recommendations API** | http://localhost:8001 | — | None |
 
 ### Generate Test Data
 
@@ -147,6 +151,68 @@ Services → ./logs/*.log → Shared Volume → Alloy → Loki:3100 → Grafana
 
 ```
 Services (OTLP) → Alloy:4317 → Tempo:4317 → Trace Storage → Grafana
+```
+
+---
+
+## 🔁 High Availability
+
+All 7 core services run as **2 replicas**. Docker network aliases (`loki`, `mimir`, `tempo`, `alloy`, etc.) allow round-robin traffic between replicas — no external load balancer (nginx) required.
+
+### How failover works per service
+
+| Service | HA Mechanism | Failover Behaviour |
+|---|---|---|
+| **Mimir** (×2) | memberlist ring, replication_factor:2 | Other instance serves all queries; data in shared MinIO |
+| **Loki** (×2) | memberlist ring, replication_factor:1, S3 backend | Other instance accepts writes and serves all logs from MinIO |
+| **Tempo** (×2) | Shared MinIO S3 backend | Other instance handles new traces; stored traces safe in MinIO |
+| **Prometheus** (×2) | Both independently scrape all targets | Other scraper continues; Mimir deduplicates writes |
+| **Alertmanager** (×2) | Native gossip cluster (`--cluster.peer`) | Other instance stays `ready`, alerts continue routing |
+| **Alloy** (×2) | Stateless, Docker DNS alias | Docker routes all traffic to remaining instance |
+| **Grafana** (×2) | Shared provisioning volumes | Access via other instance port (3001); same dashboards and data |
+
+### Shared storage (MinIO)
+
+Mimir, Loki, and Tempo all use **MinIO as a shared S3 backend**. This means:
+- Any replica can read data written by any other replica
+- If an ingester crashes, data already flushed to MinIO is never lost
+- Recovering instances replay their WAL and rejoin the ring automatically
+
+> **Note**: MinIO itself is a single instance in this PoC. In production, replace with AWS S3, Hitachi HCP, or MinIO distributed mode for full storage HA.
+
+### HA Verification commands
+
+```bash
+# Check Mimir ring (both ingesters ACTIVE)
+curl http://localhost:9009/ingester/ring
+
+# Check Loki ring (both ingesters ACTIVE)
+curl http://localhost:3100/ring
+
+# Check Alertmanager cluster (status: ready, 2 peers)
+curl -s http://localhost:9093/api/v2/status | python3 -m json.tool | grep -A10 cluster
+
+# Alert history (stored automatically in Mimir)
+curl -s 'http://localhost:9009/prometheus/api/v1/query?query=ALERTS' | python3 -m json.tool
+```
+
+### Failover test
+
+```bash
+# Test Mimir failover
+docker stop mimir-1
+curl -s 'http://localhost:9010/prometheus/api/v1/query?query=up'  # mimir-2 responds
+docker start mimir-1
+
+# Test Loki failover
+docker stop loki-1
+curl -s 'http://localhost:3101/loki/api/v1/labels'  # loki-2 responds
+docker start loki-1
+
+# Test Grafana failover
+docker stop grafana-1
+open http://localhost:3001  # grafana-2 still serving
+docker start grafana-1
 ```
 
 ---

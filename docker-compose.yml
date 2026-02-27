@@ -16,9 +16,9 @@ services:
     networks:
       - grafana-stack
     depends_on:
-      - alloy
+      - alloy-1
     healthcheck:
-      test: [ "CMD", "curl", "-f", "http://localhost:8000/health" ]
+      test: [ "CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')" ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -39,45 +39,101 @@ services:
       - grafana-stack
     depends_on:
       - weather-service
-      - alloy
+      - alloy-1
     healthcheck:
-      test: [ "CMD", "curl", "-f", "http://localhost:8001/health" ]
+      test: [ "CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/health')" ]
       interval: 10s
       timeout: 5s
       retries: 5
 
-  prometheus:
+  # ============================================================
+  # PROMETHEUS - 2 replicas, both remote_write to mimir
+  # ============================================================
+  prometheus-1:
     image: infyartifactory.jfrog.io/docker/prom/prometheus:v3.9.1
-    container_name: prometheus
+    container_name: prometheus-1
     ports:
       - "9090:9090"
     volumes:
       - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
       - ./prometheus/alert_rules.yml:/etc/prometheus/alert_rules.yml
-      - prometheus_data:/prometheus
+      - prometheus_1_data:/prometheus
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
       - '--storage.tsdb.path=/prometheus'
     networks:
-      - grafana-stack
+      grafana-stack:
+        aliases:
+          - prometheus
     depends_on:
       - weather-service
       - recommendations-service
-      - alertmanager
+      - alertmanager-1
 
-  alertmanager:
+  prometheus-2:
+    image: infyartifactory.jfrog.io/docker/prom/prometheus:v3.9.1
+    container_name: prometheus-2
+    ports:
+      - "9091:9090"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - ./prometheus/alert_rules.yml:/etc/prometheus/alert_rules.yml
+      - prometheus_2_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+    networks:
+      grafana-stack:
+        aliases:
+          - prometheus
+    depends_on:
+      - weather-service
+      - recommendations-service
+      - alertmanager-2
+
+  # ============================================================
+  # ALERTMANAGER - 2 replicas in native cluster mode
+  # ============================================================
+  alertmanager-1:
     image: infyartifactory.jfrog.io/docker/prom/alertmanager:v0.31.1
-    container_name: alertmanager
+    container_name: alertmanager-1
     ports:
       - "9093:9093"
     volumes:
       - ./alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml
-      - alertmanager_data:/alertmanager
+      - alertmanager_1_data:/alertmanager
     command:
       - '--config.file=/etc/alertmanager/alertmanager.yml'
       - '--storage.path=/alertmanager'
+      - '--cluster.listen-address=0.0.0.0:9094'
+      - '--cluster.peer=alertmanager-2:9094'
     networks:
-      - grafana-stack
+      grafana-stack:
+        aliases:
+          - alertmanager
+    healthcheck:
+      test: [ "CMD", "wget", "--spider", "-q", "http://localhost:9093/-/healthy" ]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  alertmanager-2:
+    image: infyartifactory.jfrog.io/docker/prom/alertmanager:v0.31.1
+    container_name: alertmanager-2
+    ports:
+      - "9095:9093"
+    volumes:
+      - ./alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml
+      - alertmanager_2_data:/alertmanager
+    command:
+      - '--config.file=/etc/alertmanager/alertmanager.yml'
+      - '--storage.path=/alertmanager'
+      - '--cluster.listen-address=0.0.0.0:9094'
+      - '--cluster.peer=alertmanager-1:9094'
+    networks:
+      grafana-stack:
+        aliases:
+          - alertmanager
     healthcheck:
       test: [ "CMD", "wget", "--spider", "-q", "http://localhost:9093/-/healthy" ]
       interval: 10s
@@ -94,66 +150,146 @@ services:
     networks:
       - grafana-stack
     depends_on:
-      - alertmanager
+      - alertmanager-1
 
-  grafana:
+  # ============================================================
+  # GRAFANA - 2 replicas, shared provisioning volumes
+  # Access grafana-1 on :3000, grafana-2 on :3001
+  # ============================================================
+  grafana-1:
     image: infyartifactory.jfrog.io/docker/grafana/grafana:latest
-    container_name: grafana
+    container_name: grafana-1
     ports:
       - "3000:3000"
     environment:
       - GF_SECURITY_ADMIN_PASSWORD=admin
       - GF_SECURITY_ADMIN_USER=admin
     volumes:
-      - grafana_data:/var/lib/grafana
+      - grafana_1_data:/var/lib/grafana
       - ./grafana/provisioning/datasources:/etc/grafana/provisioning/datasources
       - ./grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards
       - ./grafana/provisioning/alerting:/etc/grafana/provisioning/alerting
     networks:
-      - grafana-stack
+      grafana-stack:
+        aliases:
+          - grafana
     depends_on:
-      - prometheus
-      - loki
+      - prometheus-1
+      - loki-1
 
-  loki:
+  grafana-2:
+    image: infyartifactory.jfrog.io/docker/grafana/grafana:latest
+    container_name: grafana-2
+    ports:
+      - "3001:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_SECURITY_ADMIN_USER=admin
+    volumes:
+      - grafana_2_data:/var/lib/grafana
+      - ./grafana/provisioning/datasources:/etc/grafana/provisioning/datasources
+      - ./grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards
+      - ./grafana/provisioning/alerting:/etc/grafana/provisioning/alerting
+    networks:
+      grafana-stack:
+        aliases:
+          - grafana
+    depends_on:
+      - prometheus-2
+      - loki-2
+
+  # ============================================================
+  # LOKI - 2 replicas, MinIO S3 backend, memberlist ring
+  # ============================================================
+  loki-1:
     image: infyartifactory.jfrog.io/docker/grafana/loki:latest
-    container_name: loki
+    container_name: loki-1
     ports:
       - "3100:3100"
     volumes:
       - ./loki/loki-config.yml:/etc/loki/local-config.yaml
-      - loki_data:/loki
+      - loki_1_data:/loki
       - ./loki/rules:/loki/rules
-    command: -config.file=/etc/loki/local-config.yaml
+    command: -config.file=/etc/loki/local-config.yaml -config.expand-env=true
+    environment:
+      - INSTANCE_ADDR=loki-1
     networks:
-      - grafana-stack
+      grafana-stack:
+        aliases:
+          - loki
+    depends_on:
+      - minio-setup
     healthcheck:
-      test: [ "CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3100/ready" ]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+      test: [ "NONE" ]
 
-  tempo:
+  loki-2:
+    image: infyartifactory.jfrog.io/docker/grafana/loki:latest
+    container_name: loki-2
+    ports:
+      - "3101:3100"
+    volumes:
+      - ./loki/loki-config.yml:/etc/loki/local-config.yaml
+      - loki_2_data:/loki
+      - ./loki/rules:/loki/rules
+    command: -config.file=/etc/loki/local-config.yaml -config.expand-env=true
+    environment:
+      - INSTANCE_ADDR=loki-2
+    networks:
+      grafana-stack:
+        aliases:
+          - loki
+    depends_on:
+      - minio-setup
+    healthcheck:
+      test: [ "NONE" ]
+
+  # ============================================================
+  # TEMPO - 2 replicas, MinIO S3 backend
+  # ============================================================
+  tempo-1:
     image: infyartifactory.jfrog.io/docker/grafana/tempo:latest
-    container_name: tempo
+    container_name: tempo-1
     ports:
       - "3200:3200"
       - "4317:4317"
     volumes:
       - ./tempo/tempo-config.yml:/etc/tempo/tempo-config.yml
-      - tempo_data:/var/tempo
+      - tempo_1_data:/var/tempo
     command: -config.file=/etc/tempo/tempo-config.yml
     networks:
-      - grafana-stack
+      grafana-stack:
+        aliases:
+          - tempo
+    depends_on:
+      - minio-setup
     healthcheck:
-      test: [ "CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3200/ready" ]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+      test: [ "NONE" ]
 
-  alloy:
+  tempo-2:
+    image: infyartifactory.jfrog.io/docker/grafana/tempo:latest
+    container_name: tempo-2
+    ports:
+      - "3201:3200"
+    volumes:
+      - ./tempo/tempo-config.yml:/etc/tempo/tempo-config.yml
+      - tempo_2_data:/var/tempo
+    command: -config.file=/etc/tempo/tempo-config.yml
+    networks:
+      grafana-stack:
+        aliases:
+          - tempo
+    depends_on:
+      - minio-setup
+    healthcheck:
+      test: [ "NONE" ]
+
+  # ============================================================
+  # ALLOY - 2 replicas, stateless, DNS alias "alloy"
+  # Apps send OTLP to "alloy:4317" - Docker round-robins between both
+  # ============================================================
+  alloy-1:
     image: infyartifactory.jfrog.io/docker/grafana/alloy:latest
-    container_name: alloy
+    container_name: alloy-1
     ports:
       - "12345:12345"
     volumes:
@@ -161,20 +297,131 @@ services:
       - ./logs:/var/log
     command: run /etc/alloy/config.alloy --server.http.listen-addr=0.0.0.0:12345
     networks:
-      - grafana-stack
+      grafana-stack:
+        aliases:
+          - alloy
     depends_on:
-      - loki
-      - tempo
+      - loki-1
+      - tempo-1
     environment:
       - LOKI_URL=http://loki:3100
       - DOCKER_HOST=${DOCKER_HOST}
 
+  alloy-2:
+    image: infyartifactory.jfrog.io/docker/grafana/alloy:latest
+    container_name: alloy-2
+    ports:
+      - "12346:12345"
+    volumes:
+      - ./alloy/config.alloy:/etc/alloy/config.alloy
+      - ./logs:/var/log
+    command: run /etc/alloy/config.alloy --server.http.listen-addr=0.0.0.0:12345
+    networks:
+      grafana-stack:
+        aliases:
+          - alloy
+    depends_on:
+      - loki-2
+      - tempo-2
+    environment:
+      - LOKI_URL=http://loki:3100
+      - DOCKER_HOST=${DOCKER_HOST}
+
+  # ============================================================
+  # MIMIR - 2 replicas, memberlist ring, shared MinIO backend
+  # ============================================================
+  mimir-1:
+    image: infyartifactory.jfrog.io/docker/grafana/mimir:latest
+    container_name: mimir-1
+    ports:
+      - "9009:9009"
+    volumes:
+      - ./mimir/mimir.yml:/etc/mimir/mimir.yml
+      - mimir_1_data:/data
+    command: -config.file=/etc/mimir/mimir.yml -config.expand-env=true
+    environment:
+      - INSTANCE_ADDR=mimir-1
+    networks:
+      grafana-stack:
+        aliases:
+          - mimir
+    depends_on:
+      - minio-setup
+
+  mimir-2:
+    image: infyartifactory.jfrog.io/docker/grafana/mimir:latest
+    container_name: mimir-2
+    ports:
+      - "9010:9009"
+    volumes:
+      - ./mimir/mimir.yml:/etc/mimir/mimir.yml
+      - mimir_2_data:/data
+    command: -config.file=/etc/mimir/mimir.yml -config.expand-env=true
+    environment:
+      - INSTANCE_ADDR=mimir-2
+    networks:
+      grafana-stack:
+        aliases:
+          - mimir
+    depends_on:
+      - minio-setup
+
+  # ============================================================
+  # MINIO - Shared S3 object storage (single node, erasure coding)
+  # ============================================================
+  minio:
+    image: infyartifactory.jfrog.io/docker/minio/minio:latest
+    container_name: minio
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      - MINIO_ROOT_USER=mimiradmin
+      - MINIO_ROOT_PASSWORD=mimirsecret
+    volumes:
+      - minio_data:/data
+    command: server /data --console-address ":9001"
+    networks:
+      - grafana-stack
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:9000/minio/health/live" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  minio-setup:
+    image: infyartifactory.jfrog.io/docker/minio/mc:latest
+    container_name: minio-setup
+    depends_on:
+      minio:
+        condition: service_healthy
+    networks:
+      - grafana-stack
+    entrypoint: >
+      /bin/sh -c "
+        sleep 5;
+        mc alias set myminio http://minio:9000 mimiradmin mimirsecret;
+        mc mb myminio/mimir-data       || true;
+        mc mb myminio/mimir-ruler-data || true;
+        mc mb myminio/loki-data        || true;
+        mc mb myminio/tempo-data       || true;
+        exit 0;
+      "
+
 volumes:
-  prometheus_data:
-  grafana_data:
-  loki_data:
-  tempo_data:
-  alertmanager_data:
+  prometheus_1_data:
+  prometheus_2_data:
+  grafana_1_data:
+  grafana_2_data:
+  loki_1_data:
+  loki_2_data:
+  tempo_1_data:
+  tempo_2_data:
+  alertmanager_1_data:
+  alertmanager_2_data:
+  mimir_1_data:
+  mimir_2_data:
+  minio_data:
 
 
 networks:

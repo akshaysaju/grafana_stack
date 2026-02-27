@@ -15,8 +15,12 @@ ingester:
 
 storage:
   trace:
-    backend: local
-    local:
-      path: /var/tempo/traces
+    backend: s3
+    s3:
+      endpoint: minio:9000
+      bucket: tempo-data
+      access_key: mimiradmin
+      secret_key: mimirsecret
+      insecure: true
     wal:
       path: /var/tempo/wal
